@@ -1,0 +1,1814 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>店舗イベント管理</title>
+<script src="config.js"></script>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f4f5f7;--panel:#fff;--line:#e1e4e8;--line2:#eef0f2;--text:#1f2933;--muted:#69737f;
+  --accent:#1f6feb;--accent-weak:#e8f0fe;--danger:#c5221f;--danger-weak:#fce8e6;
+  --ok:#137333;--ok-weak:#e6f4ea;--warn:#a05a00;--warn-weak:#fef3e0;
+  --sat:#e8f0fe;--sun:#fce8e6;--sat-text:#1a56c4;--sun-text:#c5221f;
+  --visit:#3b7be8;--exhibit:#e07b12;--big:#8b3fd9;--allc:#16803c;
+  --dw:34px;--namew:132px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.55 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 11px}
+button:hover{background:#f6f8fa}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover{background:#185fcc}
+button.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+button.link{border:none;background:none;color:var(--accent);padding:2px 4px}
+button.link.danger-text{color:var(--danger)}
+button.small{padding:2px 8px;font-size:12px}
+button:disabled{opacity:.45;cursor:default}
+input,select,textarea{border:1px solid #cfd4da;border-radius:6px;padding:5px 8px;background:#fff;max-width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent-weak);border-color:var(--accent)}
+textarea{width:100%;min-height:64px;resize:vertical}
+input[type=number]{text-align:right}
+h1,h2,h3{margin:0}
+h2{font-size:17px}
+h3{font-size:15px;margin-bottom:8px}
+.muted{color:var(--muted)}
+.small-text{font-size:12px}
+.grow{flex:1}
+.nowrap{white-space:nowrap}
+.right{text-align:right}
+.red{color:var(--danger);font-weight:600}
+
+/* ヘッダー */
+.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+.brand{font-weight:700;font-size:16px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tabs button{border:none;background:none;padding:6px 12px;border-radius:6px;color:var(--muted)}
+.tabs button.on{background:var(--accent-weak);color:var(--accent);font-weight:600}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.user{display:flex;align-items:center;gap:6px}
+.role{font-size:11px;padding:1px 7px;border-radius:10px;background:var(--line2);color:var(--muted)}
+.role.admin{background:#f3e8fd;color:#7b2fbf}
+#sync-info{font-size:12px;color:var(--muted)}
+#sync-info.err{color:var(--danger)}
+.banner{padding:8px 16px;font-size:13px}
+.banner.demo{background:var(--warn-weak);color:var(--warn)}
+.banner.warn{background:var(--danger-weak);color:var(--danger);border-radius:8px;margin-bottom:12px}
+
+/* レイアウト */
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;padding:16px;align-items:start}
+.layout.todo-closed{grid-template-columns:minmax(0,1fr) auto}
+main{min-width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.view-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:#fff}
+.seg button{border:none;border-radius:0;padding:5px 12px}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--accent);color:#fff}
+.month-nav{display:flex;align-items:center;gap:6px}
+.month-nav strong{min-width:90px;text-align:center}
+
+/* 絞り込み */
+.filters{display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:12px;align-items:center}
+.fgroup{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.fchip{font-size:12px;padding:2px 9px;border-radius:12px}
+.fchip.on{background:var(--accent-weak);border-color:#b7cdf7;color:var(--accent)}
+.fchip.blk{font-weight:600}
+
+/* 店舗別 */
+.sg-wrap{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:10px}
+.sg{display:inline-block;min-width:100%}
+.sg-row{display:flex;border-bottom:1px solid var(--line2)}
+.sg-row:last-child{border-bottom:none}
+.sg-name{position:sticky;left:0;z-index:3;flex:0 0 var(--namew);width:var(--namew);background:#fff;padding:4px 8px;border-right:1px solid var(--line);font-size:13px;display:flex;align-items:center}
+.sg-head .sg-name{font-weight:600;color:var(--muted)}
+.sg-days{display:grid;grid-template-columns:repeat(var(--n),var(--dw))}
+.sg-day{text-align:center;font-size:12px;padding:3px 0;line-height:1.2;border-left:1px solid var(--line2)}
+.sg-day small{display:block;color:var(--muted);font-size:10px}
+.sg-day.sat{background:var(--sat);color:var(--sat-text)}
+.sg-day.sun,.sg-day.hol{background:var(--sun);color:var(--sun-text)}
+.sg-day.today{box-shadow:inset 0 -3px 0 var(--accent);font-weight:700}
+.sg-block .sg-name{background:#f7f8fa;font-weight:700;font-size:12px;color:var(--muted)}
+.sg-block{background:#f7f8fa}
+.sg-track{display:grid;grid-template-columns:repeat(var(--n),var(--dw));grid-template-rows:repeat(var(--lanes),24px);row-gap:3px;padding:4px 0;cursor:copy;position:relative}
+.sg-bg{border-left:1px solid var(--line2)}
+.sg-bg.sat{background:#f5f8fe}
+.sg-bg.sun,.sg-bg.hol{background:#fdf4f3}
+.row-big .sg-name{color:var(--big);font-weight:700}
+.row-all .sg-name{color:var(--allc);font-weight:700}
+.bar{position:relative;z-index:1;margin:0 2px;border-radius:5px;padding:0 6px;font-size:12px;line-height:24px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.bar:hover,.chip:hover{filter:brightness(.92)}
+.t-visit{background:var(--visit)}
+.t-exhibit{background:var(--exhibit)}
+.t-big{background:var(--big)}
+.t-all{background:var(--allc)}
+
+/* 月カレンダー */
+.mc{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.mc-wd{padding:6px;text-align:center;font-size:12px;font-weight:600;border-bottom:1px solid var(--line);background:#f7f8fa}
+.mc-wd.sun{color:var(--sun-text)}.mc-wd.sat{color:var(--sat-text)}
+.mc-cell{min-height:96px;padding:4px;border-right:1px solid var(--line2);border-bottom:1px solid var(--line2);cursor:copy;min-width:0}
+.mc-cell:nth-child(7n){border-right:none}
+.mc-cell.sat{background:#f8faff}
+.mc-cell.sun,.mc-cell.hol{background:#fff8f7}
+.mc-cell.out{opacity:.45}
+.mc-date{font-size:12px;margin-bottom:3px;display:flex;gap:4px;align-items:baseline}
+.mc-cell.sat .mc-date{color:var(--sat-text)}
+.mc-cell.sun .mc-date,.mc-cell.hol .mc-date{color:var(--sun-text)}
+.mc-cell.today .mc-date b{background:var(--accent);color:#fff;border-radius:10px;padding:0 6px}
+.mc-hol{font-size:10px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.chip{font-size:11px;color:#fff;border-radius:4px;padding:1px 5px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+
+/* 表 */
+.table-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:#fff}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line2);text-align:left;vertical-align:middle}
+th{font-size:12px;color:var(--muted);font-weight:600;background:#f7f8fa;white-space:nowrap}
+tr.over td{background:var(--danger-weak)}
+tr.total td{font-weight:700;background:#f7f8fa}
+tr.clickable{cursor:pointer}
+tr.clickable:hover td{background:#f6f8fb}
+td.num,th.num{text-align:right;white-space:nowrap}
+td input[type=number]{width:110px}
+.badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;white-space:nowrap}
+.badge.warn{background:var(--warn-weak);color:var(--warn)}
+.badge.ok{background:var(--ok-weak);color:var(--ok)}
+.badge.gray{background:var(--line2);color:var(--muted)}
+.badge.red{background:var(--danger-weak);color:var(--danger)}
+.typetag{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
+.empty{padding:22px;text-align:center;color:var(--muted)}
+
+/* カード */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.card .lbl{font-size:12px;color:var(--muted)}
+.card .val{font-size:20px;font-weight:700;margin-top:2px}
+.card .val.neg{color:var(--danger)}
+.card input{width:100%;font-size:17px;font-weight:700;margin-top:2px}
+
+/* ToDo */
+.todo{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;position:sticky;top:70px;max-height:calc(100vh - 90px);overflow:auto}
+.todo-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.todo-head h3{margin:0}
+.todo-item{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--line2);align-items:flex-start}
+.todo-item:last-child{border-bottom:none}
+.todo-item input{margin-top:4px}
+.todo-item .t1{font-size:13px;font-weight:600}
+.todo-item .t2{font-size:12px;color:var(--muted)}
+.todo-item.done .t1{text-decoration:line-through;color:var(--muted)}
+.due{font-size:11px;padding:0 6px;border-radius:9px;background:var(--line2);color:var(--muted);white-space:nowrap}
+.due.over{background:var(--danger-weak);color:var(--danger);font-weight:600}
+.due.soon{background:var(--warn-weak);color:var(--warn)}
+.todo.closed{padding:6px}
+
+/* モーダル */
+.modal-bg{position:fixed;inset:0;background:rgba(20,26,33,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;z-index:50}
+.modal{background:#fff;border-radius:12px;width:100%;max-width:620px;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.2)}
+.modal.wide{max-width:820px}
+.modal h2{margin-bottom:12px}
+.modal label,.field{display:block;margin-bottom:11px}
+.modal label>span,.field>.lbl{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:3px}
+.modal label input:not([type=checkbox]):not([type=radio]),.modal label select{width:100%}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.foot{display:flex;gap:8px;align-items:center;margin-top:16px;flex-wrap:wrap}
+.chk{display:inline-flex !important;align-items:center;gap:5px;margin:0 10px 4px 0 !important;font-size:13px}
+.blk{border:1px solid var(--line2);border-radius:8px;padding:6px 10px;margin-top:6px}
+.blk-head{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:3px}
+.alloc{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.alloc-head,.alloc-auto{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.alloc-auto input{width:140px}
+.alloc table td,.alloc table th{padding:4px 8px}
+.err{color:var(--danger);font-size:13px;margin-top:6px;min-height:1em}
+.temp-pass{font-size:22px;font-weight:700;letter-spacing:2px;background:#f7f8fa;border:1px dashed var(--line);padding:10px;text-align:center;border-radius:8px;margin:10px 0;user-select:all}
+
+/* ログイン */
+.auth{max-width:420px;margin:60px auto;padding:0 16px}
+.auth .panel{padding:24px}
+.auth h1{font-size:20px;margin-bottom:4px}
+.auth label{display:block;margin-bottom:12px}
+.auth label span{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:3px}
+.auth input,.auth select{width:100%}
+.auth button.primary{width:100%;padding:9px;margin-top:6px}
+.note{font-size:12px;color:var(--muted);background:#f7f8fa;border-radius:6px;padding:8px 10px;margin-bottom:12px}
+
+/* 通知 */
+#toast-root{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast{background:#202124;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;display:flex;gap:12px;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+.toast.err{background:var(--danger)}
+.toast button{background:none;border:none;color:#8ab4f8;padding:0;font-weight:600}
+
+.memo{border-bottom:1px solid var(--line2);padding:8px 0;display:flex;gap:10px}
+.memo:last-child{border-bottom:none}
+.memo .d{font-size:12px;color:var(--muted);white-space:nowrap;min-width:84px}
+.memo .txt{white-space:pre-wrap;flex:1}
+.memo-form{display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;flex-wrap:wrap}
+.memo-form textarea{flex:1;min-height:38px;min-width:200px}
+.exp td{padding:4px 6px}
+.exp input,.exp select{width:100%}
+.exp-box{background:#f9fafb;padding:10px 12px}
+
+@media (max-width:900px){
+  .layout,.layout.todo-closed{grid-template-columns:minmax(0,1fr);padding:12px}
+  aside{order:-1}
+  .todo{position:static;max-height:260px}
+  :root{--namew:96px}
+  .grid2{grid-template-columns:1fr}
+  .mc-cell{min-height:70px}
+}
+@media print{.top,aside,.banner.demo{display:none}.layout{display:block}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+<script>
+'use strict';
+// ====================================================================== 設定
+const CFG = window.EVENT_TOOL_CONFIG || {};
+const API_URL = String(CFG.apiUrl || '').trim();
+const DEMO = !API_URL;
+const POLL_MS = 60000;
+
+const VISIT_TYPES = ['完成見学会', 'モデルハウス見学会', '移動型見学会', '相談会', '賑やかし', 'キャンペーン', 'その他'];
+const EXHIBIT_TYPES = ['大型出展イベント', '出展イベント'];
+const BIG = '大型出展イベント';
+const ROLE_LABEL = { admin: '管理者', manager: '店長', staff: 'スタッフ' };
+const WD = ['日', '月', '火', '水', '木', '金', '土'];
+const TABS = [['calendar', 'カレンダー'], ['plan', '四半期計画'], ['effect', '効果検証'], ['budget', '予算管理']];
+
+const DEFAULT_STORES = {
+  blocks: [
+    { id: 'blk_okayama', name: '岡山BLK' }, { id: 'blk_kurashiki', name: '倉敷BLK' },
+    { id: 'blk_hiroshima', name: '広島BLK' }, { id: 'blk_kagawa', name: '香川BLK' }
+  ],
+  stores: [
+    { id: 'st_okayama', name: '岡山店', blockId: 'blk_okayama', scale: 1 },
+    { id: 'st_higashi', name: '東店', blockId: 'blk_okayama', scale: 1 },
+    { id: 'st_barazono', name: 'バラ園', blockId: 'blk_okayama', scale: 1 },
+    { id: 'st_barazono2', name: 'バラ園２', blockId: 'blk_okayama', scale: 1 },
+    { id: 'st_takumito', name: 'TAKUMITO', blockId: 'blk_okayama', scale: 1 },
+    { id: 'st_kurashiki', name: '倉敷店', blockId: 'blk_kurashiki', scale: 1 },
+    { id: 'st_souten', name: '總展', blockId: 'blk_kurashiki', scale: 1 },
+    { id: 'st_soja', name: '総社店', blockId: 'blk_kurashiki', scale: 1 },
+    { id: 'st_fukuyama', name: '福山店', blockId: 'blk_hiroshima', scale: 1 },
+    { id: 'st_fukuyamaminami', name: '福山南展', blockId: 'blk_hiroshima', scale: 1 },
+    { id: 'st_takamatsu', name: '高松展', blockId: 'blk_kagawa', scale: 1 }
+  ]
+};
+const DEFAULT_COST_ITEMS = {
+  items: [
+    { id: 'ci_flyer', name: 'チラシ・ポスティング' }, { id: 'ci_paper', name: '新聞折込' },
+    { id: 'ci_web', name: 'Web広告' }, { id: 'ci_sns', name: 'SNS広告' },
+    { id: 'ci_venue', name: '会場費・出展料' }, { id: 'ci_gift', name: 'ノベルティ・景品' },
+    { id: 'ci_deco', name: '装飾・備品' }, { id: 'ci_food', name: '飲食' }, { id: 'ci_other', name: 'その他' }
+  ]
+};
+const TODO_DEFS = [
+  { key: 'ad', label: '広告・イベントページ作成', due: e => addDays(e.start, -21) },
+  { key: 'hp', label: 'HP UP・広告開始', due: e => addDays(e.start, -14) },
+  { key: 'result', label: '成果の詳細を入力', due: e => addDays(evEnd(e), 1) }
+];
+
+// ====================================================================== 小さな道具
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, '0');
+const clone = o => JSON.parse(JSON.stringify(o));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const num = v => { const n = Number(String(v == null ? '' : v).replace(/[,¥\s円]/g, '')); return isFinite(n) ? n : 0; };
+const sum = (arr, f) => arr.reduce((a, x) => a + (f ? f(x) : x), 0);
+const yen = n => '¥' + Math.round(n || 0).toLocaleString('ja-JP');
+const pct = (a, b) => b > 0 ? (a / b * 100).toFixed(1) + '%' : '—';
+const per = (a, b) => b > 0 ? yen(a / b) : '—';
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { } }
+function lsJSON(k, def) { try { const v = JSON.parse(lsGet(k)); return v == null ? def : v; } catch (e) { return def; } }
+
+// 日付は 'YYYY-MM-DD' の文字列で扱う
+function toDS(d) { return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`; }
+function fromDS(s) { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); }
+function addDays(s, n) { const d = fromDS(s); d.setUTCDate(d.getUTCDate() + n); return toDS(d); }
+function diffDays(a, b) { return Math.round((fromDS(b) - fromDS(a)) / 86400000); }
+function dow(s) { return fromDS(s).getUTCDay(); }
+function today() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function daysIn(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
+function md(s) { if (!s) return ''; const [, m, d] = s.split('-').map(Number); return `${m}/${d}(${WD[dow(s)]})`; }
+function ymd(s) { if (!s) return ''; const [y, m, d] = s.split('-').map(Number); return `${y}/${m}/${d}(${WD[dow(s)]})`; }
+function dateRange(e) { const en = evEnd(e); return en !== e.start ? `${md(e.start)}〜${md(en)}` : md(e.start); }
+function fyOf(s) { const [y, m] = s.split('-').map(Number); return m >= 4 ? y : y - 1; }
+function qOf(s) { const m = Number(s.split('-')[1]); return m >= 4 && m <= 6 ? 1 : m >= 7 && m <= 9 ? 2 : m >= 10 ? 3 : 4; }
+function kiLabel(fy) { return `${fy - 1990}期(${fy}年度)`; }
+const Q_LABEL = { 1: 'Q1(4〜6月)', 2: 'Q2(7〜9月)', 3: 'Q3(10〜12月)', 4: 'Q4(1〜3月)' };
+function quarterRange(fy, q) {
+  const r = { 1: [`${fy}-04-01`, `${fy}-06-30`], 2: [`${fy}-07-01`, `${fy}-09-30`], 3: [`${fy}-10-01`, `${fy}-12-31`], 4: [`${fy + 1}-01-01`, `${fy + 1}-03-31`] };
+  return r[q];
+}
+function fmtDT(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso); if (isNaN(d)) return '—';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// 祝日(2020年以降の法律にもとづいて計算)
+const holCache = {};
+function nthMonday(y, m, n) { const w = new Date(Date.UTC(y, m - 1, 1)).getUTCDay(); return 1 + (8 - w) % 7 + 7 * (n - 1); }
+function holidaysFor(y) {
+  if (holCache[y]) return holCache[y];
+  const h = {};
+  const add = (m, d, n) => { h[`${y}-${pad(m)}-${pad(d)}`] = n; };
+  const k = y - 1980;
+  add(1, 1, '元日'); add(1, nthMonday(y, 1, 2), '成人の日'); add(2, 11, '建国記念の日'); add(2, 23, '天皇誕生日');
+  add(3, Math.floor(20.8431 + 0.242194 * k - Math.floor(k / 4)), '春分の日');
+  add(4, 29, '昭和の日'); add(5, 3, '憲法記念日'); add(5, 4, 'みどりの日'); add(5, 5, 'こどもの日');
+  add(7, nthMonday(y, 7, 3), '海の日'); add(8, 11, '山の日'); add(9, nthMonday(y, 9, 3), '敬老の日');
+  add(9, Math.floor(23.2488 + 0.242194 * k - Math.floor(k / 4)), '秋分の日');
+  add(10, nthMonday(y, 10, 2), 'スポーツの日'); add(11, 3, '文化の日'); add(11, 23, '勤労感謝の日');
+  const base = Object.keys(h).sort();
+  base.forEach(d => { // 国民の休日(祝日にはさまれた平日)
+    const mid = addDays(d, 1), next = addDays(d, 2);
+    if (h[next] && !h[mid] && dow(mid) !== 0) h[mid] = '国民の休日';
+  });
+  base.forEach(d => { // 振替休日
+    if (dow(d) !== 0) return;
+    let n = addDays(d, 1);
+    while (h[n]) n = addDays(n, 1);
+    h[n] = '振替休日';
+  });
+  return (holCache[y] = h);
+}
+function holidayName(s) { return holidaysFor(Number(s.slice(0, 4)))[s] || ''; }
+function dayClass(s) { const w = dow(s); return holidayName(s) ? 'hol' : w === 0 ? 'sun' : w === 6 ? 'sat' : ''; }
+
+// ====================================================================== 通信
+const session = { token: lsGet('evt-token'), user: null };
+
+async function api(action, params) {
+  const body = Object.assign({ action, token: session.token }, params || {});
+  let res;
+  try {
+    if (DEMO) res = await demoApi(body);
+    else {
+      const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify(body), redirect: 'follow' });
+      res = await r.json();
+    }
+  } catch (e) {
+    throw new Error('サーバーにつながりませんでした。ネットワークを確認してください');
+  }
+  if (!res || !res.ok) {
+    const err = new Error((res && res.error) || 'エラーが起きました');
+    err.code = res && res.code;
+    if (err.code === 'AUTH') setTimeout(() => forceLogout(err.message), 0);
+    if (err.code === 'MUST_CHANGE') setTimeout(() => showAuth('change'), 0);
+    throw err;
+  }
+  return res;
+}
+
+// ---------------------------------------------------------------- お試しモード(ブラウザ内だけで動く代わりのサーバー)
+async function sha(s) {
+  if (window.crypto && crypto.subtle) {
+    const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+    return btoa(String.fromCharCode.apply(null, new Uint8Array(b)));
+  }
+  let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return String(h);
+}
+async function demoApi(req) {
+  await new Promise(r => setTimeout(r, 120));
+  const db = lsJSON('evt-demo-db', null) || { users: [], sessions: [], data: {}, ver: 0 };
+  const save = () => lsSet('evt-demo-db', JSON.stringify(db));
+  const ng = (error, code) => ({ ok: false, error, code });
+  const pub = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, requestedRole: u.requestedRole || '', mustChange: !!u.mustChange, createdAt: u.createdAt, lastLogin: u.lastLogin });
+  const hash = (p, salt) => sha(salt + ':' + p);
+  const newSession = uidv => { const t = uid() + uid(); db.sessions.push({ token: t, userId: uidv }); return t; };
+  const listUsers = () => ({ ok: true, users: db.users.map(pub) });
+  const email = String(req.email || '').trim().toLowerCase();
+  const now = new Date().toISOString();
+  switch (req.action) {
+    case 'status': return { ok: true, hasUsers: db.users.length > 0 };
+    case 'register': {
+      const name = String(req.name || '').trim();
+      if (!name) return ng('名前を入力してください');
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return ng('メールアドレスの形式が正しくありません');
+      if (String(req.password || '').length < 8) return ng('パスワードは8文字以上にしてください');
+      if (db.users.some(u => u.email === email)) return ng('このメールアドレスはすでに登録されています');
+      const first = db.users.length === 0;
+      let role = req.role, requestedRole = '';
+      if (role === 'admin' && !first) { role = 'manager'; requestedRole = 'admin'; }
+      if (first) role = 'admin';
+      const salt = uid();
+      const u = { id: uid(), email, name, role, requestedRole, salt, hash: await hash(req.password, salt), mustChange: false, createdAt: now, lastLogin: now };
+      db.users.push(u);
+      const token = newSession(u.id); save();
+      return { ok: true, token, user: pub(u) };
+    }
+    case 'login': {
+      const u = db.users.find(x => x.email === email);
+      if (!u || await hash(String(req.password || ''), u.salt) !== u.hash) return ng('メールアドレスまたはパスワードが違います');
+      u.lastLogin = now; const token = newSession(u.id); save();
+      return { ok: true, token, user: pub(u) };
+    }
+  }
+  const s = db.sessions.find(x => x.token === req.token);
+  const me = s && db.users.find(u => u.id === s.userId);
+  if (!me) return ng('ログインの有効期限が切れました。もう一度ログインしてください', 'AUTH');
+  if (me.mustChange && !['changePassword', 'me', 'logout'].includes(req.action)) return ng('仮パスワードを変更してください', 'MUST_CHANGE');
+  const adminOnly = ['listUsers', 'approveAdmin', 'rejectAdmin', 'setRole', 'resetPassword', 'deleteUser'];
+  if (adminOnly.includes(req.action) && me.role !== 'admin') return ng('管理者だけが使える操作です');
+  const target = db.users.find(u => u.id === req.userId);
+  const admins = db.users.filter(u => u.role === 'admin').length;
+  switch (req.action) {
+    case 'me': return { ok: true, user: pub(me) };
+    case 'logout': db.sessions = db.sessions.filter(x => x.token !== req.token); save(); return { ok: true };
+    case 'changePassword': {
+      if (await hash(String(req.current || ''), me.salt) !== me.hash) return ng('今のパスワードが違います');
+      if (String(req.password || '').length < 8) return ng('新しいパスワードは8文字以上にしてください');
+      me.salt = uid(); me.hash = await hash(req.password, me.salt); me.mustChange = false; save();
+      return { ok: true, user: pub(me) };
+    }
+    case 'load': case 'changes': {
+      const since = req.action === 'load' ? 0 : Number(req.since) || 0;
+      const docs = {};
+      Object.entries(db.data).forEach(([k, r]) => {
+        if (r.updatedAt <= since) return;
+        if (req.action === 'load' && r.deleted) return;
+        docs[k] = r.deleted ? null : r.value;
+      });
+      return { ok: true, docs, version: db.ver };
+    }
+    case 'put': db.ver++; db.data[req.key] = { value: req.value, updatedAt: db.ver, deleted: false }; save(); return { ok: true, version: db.ver };
+    case 'remove': db.ver++; db.data[req.key] = { value: null, updatedAt: db.ver, deleted: true }; save(); return { ok: true, version: db.ver };
+    case 'listUsers': return listUsers();
+    case 'approveAdmin': if (target) { target.role = 'admin'; target.requestedRole = ''; } save(); return listUsers();
+    case 'rejectAdmin': if (target) target.requestedRole = ''; save(); return listUsers();
+    case 'setRole':
+      if (!target) return ng('アカウントが見つかりません');
+      if (target.role === 'admin' && req.role !== 'admin' && admins <= 1) return ng('最後の1人の管理者の権限は変更できません');
+      target.role = req.role; target.requestedRole = ''; save(); return listUsers();
+    case 'resetPassword': {
+      if (!target) return ng('アカウントが見つかりません');
+      const temp = Math.random().toString(36).slice(2, 7) + Math.random().toString(36).slice(2, 7);
+      target.salt = uid(); target.hash = await hash(temp, target.salt); target.mustChange = true;
+      db.sessions = db.sessions.filter(x => x.userId !== target.id); save();
+      return { ok: true, tempPassword: temp };
+    }
+    case 'deleteUser':
+      if (req.userId === me.id) return ng('自分のアカウントは削除できません');
+      if (!target) return ng('アカウントが見つかりません');
+      if (target.role === 'admin' && admins <= 1) return ng('最後の1人の管理者は削除できません');
+      db.users = db.users.filter(u => u.id !== target.id);
+      db.sessions = db.sessions.filter(x => x.userId !== target.id); save();
+      return listUsers();
+  }
+  return ng('不明な操作です: ' + req.action);
+}
+
+// ====================================================================== データ
+let docs = {};          // "collection/id" → 値
+let version = 0;        // ここまでの変更を受け取った印
+let lastSync = null;
+let syncState = '';     // '' | saving | error
+let pendingWrites = 0;
+const writingKeys = new Set();
+
+function getDoc(k) { return docs[k] || null; }
+function storesCfg() { const d = getDoc('config/stores'); return d && Array.isArray(d.stores) ? d : DEFAULT_STORES; }
+function blocks() { return storesCfg().blocks || []; }
+function stores() { return storesCfg().stores || []; }
+function storesOrdered() {
+  const bl = blocks().map(b => b.id);
+  const out = [];
+  bl.forEach(b => stores().filter(s => s.blockId === b).forEach(s => out.push(s)));
+  stores().filter(s => !bl.includes(s.blockId)).forEach(s => out.push(s));
+  return out;
+}
+function storeById(id) { return stores().find(s => s.id === id); }
+function storeName(id) { if (id === 'all') return '全店共通'; const s = storeById(id); return s ? s.name : '(削除された店舗)'; }
+function costItems() { const d = getDoc('config/costItems'); return d && Array.isArray(d.items) ? d.items : DEFAULT_COST_ITEMS.items; }
+function costName(id) { const c = costItems().find(x => x.id === id); return c ? c.name : '(削除された項目)'; }
+
+function evList() {
+  return Object.keys(docs).filter(k => k.startsWith('events/') && docs[k]).map(k => docs[k])
+    .sort((a, b) => (a.start || '').localeCompare(b.start || '') || (a.name || '').localeCompare(b.name || ''));
+}
+function getEvent(id) { return getDoc('events/' + id); }
+function evEnd(e) { return e.end && e.end >= e.start ? e.end : e.start; }
+function isAll(e) { return (e.stores || []).includes('all'); }
+function isSingle(e) { return !isAll(e) && (e.stores || []).length === 1; }
+function participants(e) { return isAll(e) ? stores().map(s => s.id) : (e.stores || []).slice(); }
+function category(e) { return EXHIBIT_TYPES.includes(e.type) ? 'exhibit' : 'visit'; }
+function typeClass(e) { return e.type === BIG ? 't-big' : category(e) === 'exhibit' ? 't-exhibit' : isAll(e) ? 't-all' : 't-visit'; }
+function storeLabel(e) {
+  if (isAll(e)) return '全店共通';
+  const n = (e.stores || []).map(storeName);
+  return n.length > 2 ? `${n[0]}・${n[1]} 他${n.length - 2}店` : n.join('・');
+}
+function allocTotal(e) { return sum(e.allocations || [], a => sum(Object.values(a.amounts || {}), num)); }
+function budgetOf(e) { return isSingle(e) ? num(e.budget) : allocTotal(e); }
+function shareOf(e, sid) {
+  if (isSingle(e)) return e.stores[0] === sid ? num(e.budget) : 0;
+  return sum(e.allocations || [], a => num((a.amounts || {})[sid]));
+}
+function usedOf(e) { return sum(e.expenses || [], x => num(x.amount)); }
+/** 店舗ごとの使用金額。合同イベントは割り振った予算の比率で按分する */
+function usedShare(e, sid) {
+  const u = usedOf(e);
+  if (isSingle(e)) return e.stores[0] === sid ? u : 0;
+  const p = participants(e);
+  if (!p.includes(sid)) return 0;
+  const tot = budgetOf(e);
+  return tot > 0 ? u * shareOf(e, sid) / tot : u / p.length;
+}
+function ratio(e, sid) { const u = usedOf(e); return sid === 'all' ? 1 : u > 0 ? usedShare(e, sid) / u : (participants(e).includes(sid) ? 1 / participants(e).length : 0); }
+function todoDone(e, key) {
+  if (key === 'result' && e.result && e.result.entered) return true;
+  return !!(e.todos && e.todos[key]);
+}
+function hasResult(e) { return !!(e.result && e.result.entered); }
+
+// ---------------------------------------------------------------- 読み込み・保存
+async function loadAll() {
+  const r = await api('load');
+  docs = r.docs || {};
+  version = r.version || 0;
+  lastSync = new Date();
+}
+
+async function saveDoc(key, value, msg) {
+  docs[key] = value;
+  scheduleRender();
+  await write(key, () => api('put', { key, value }), msg);
+}
+async function removeDoc(key, msg) {
+  delete docs[key];
+  scheduleRender();
+  await write(key, () => api('remove', { key }), msg);
+}
+async function write(key, fn, msg) {
+  pendingWrites++; writingKeys.add(key); syncState = 'saving'; renderSyncInfo();
+  try {
+    await fn();
+    if (msg) toast(msg);
+    syncState = '';
+  } catch (e) {
+    syncState = 'error';
+    toast('保存できませんでした:' + e.message, { err: true });
+    resync();
+  } finally {
+    pendingWrites--; writingKeys.delete(key);
+    renderSyncInfo();
+  }
+}
+
+/** 保存に失敗したときは、サーバーの内容を読み直して画面と食い違わないようにする */
+async function resync() {
+  try { await loadAll(); render(); } catch (e) { }
+}
+
+let polling = false;
+async function poll(manual) {
+  if (!session.user || polling) return;
+  polling = true;
+  try {
+    const r = await api('changes', { since: version });
+    let changed = false;
+    Object.keys(r.docs || {}).forEach(k => {
+      if (writingKeys.has(k)) return; // 自分が保存中のものは上書きしない
+      const v = r.docs[k];
+      if (JSON.stringify(docs[k] == null ? null : docs[k]) === JSON.stringify(v)) return;
+      changed = true;
+      if (v === null) delete docs[k]; else docs[k] = v;
+    });
+    version = Math.max(version, r.version || 0);
+    lastSync = new Date();
+    if (state.tab === 'accounts' && manual) loadUsers();
+    if (changed) softRender(); else renderSyncInfo();
+    if (manual) toast(changed ? '最新の内容に更新しました' : '最新の状態です');
+  } catch (e) {
+    if (manual) toast(e.message, { err: true });
+  } finally {
+    polling = false;
+  }
+}
+setInterval(() => { if (document.visibilityState === 'visible') poll(); }, POLL_MS);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); });
+
+// ====================================================================== 画面の状態
+const now0 = today();
+const state = Object.assign({
+  tab: 'calendar', calMode: 'store', ym: now0.slice(0, 7), hidden: [],
+  plan: { fy: fyOf(now0), q: qOf(now0), storeId: '' },
+  period: { mode: 'quarter', ym: now0.slice(0, 7), fy: fyOf(now0), q: qOf(now0) },
+  bStore: 'all', eStore: 'all', todoClosed: false, showDone: false
+}, lsJSON('evt-ui', {}));
+state.users = null; state.accQ = ''; state.accRole = ''; state.accConfirm = null; state.open = {};
+function saveUi() {
+  const { tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone } = state;
+  lsSet('evt-ui', JSON.stringify({ tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone }));
+}
+const isHidden = sid => state.hidden.includes(sid);
+function visibleByFilter(e) { return isAll(e) || (e.stores || []).some(id => !isHidden(id)) || !(e.stores || []).some(storeById); }
+
+// ====================================================================== 描画
+let pointerDown = false, renderAfterPointer = false, pendingRender = false;
+document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
+document.addEventListener('pointerup', () => {
+  pointerDown = false;
+  if (renderAfterPointer) { renderAfterPointer = false; setTimeout(render, 0); }
+}, true);
+function scheduleRender() {
+  if (pointerDown) renderAfterPointer = true;
+  else setTimeout(render, 0);
+}
+/** 他の人の変更が届いたとき。入力中なら終わってから描き直す */
+function softRender() {
+  const ae = document.activeElement;
+  const typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+  if (modalStack.length || typing) { pendingRender = true; renderSyncInfo(); return; }
+  render();
+}
+document.addEventListener('focusout', () => setTimeout(() => {
+  const ae = document.activeElement;
+  const typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+  if (pendingRender && !typing && !modalStack.length) render();
+}, 50));
+
+function render() {
+  if (!session.user || !$('main')) return;
+  pendingRender = false;
+  const ae = document.activeElement;
+  const fid = ae && ae.id && $('root').contains(ae) ? ae.id : null;
+  let sel = null;
+  try { if (fid && typeof ae.selectionStart === 'number') sel = [ae.selectionStart, ae.selectionEnd]; } catch (e) { }
+  const sx = $('sg-scroll') ? $('sg-scroll').scrollLeft : null;
+
+  $('tabs').innerHTML = tabsHtml();
+  $('main').innerHTML = mainHtml();
+  $('todo').innerHTML = todoHtml();
+  $('layout').classList.toggle('todo-closed', !!state.todoClosed);
+  renderSyncInfo();
+
+  if (sx != null && $('sg-scroll')) $('sg-scroll').scrollLeft = sx;
+  if (fid && $(fid)) {
+    const el = $(fid); el.focus();
+    try { if (sel) el.setSelectionRange(sel[0], sel[1]); } catch (e) { }
+  }
+}
+function renderSyncInfo() {
+  const el = $('sync-info'); if (!el) return;
+  el.classList.toggle('err', syncState === 'error');
+  if (syncState === 'saving' || pendingWrites) el.textContent = '保存中…';
+  else if (syncState === 'error') el.textContent = '保存できなかった変更があります';
+  else el.textContent = lastSync ? `最終更新 ${pad(lastSync.getHours())}:${pad(lastSync.getMinutes())}` + (pendingRender ? '(新しい変更あり)' : '') : '';
+}
+
+function shellHtml() {
+  const u = session.user;
+  return `
+  <header class="top">
+    <div class="brand">店舗イベント管理</div>
+    <nav class="tabs" id="tabs"></nav>
+    <div class="top-right">
+      <span id="sync-info"></span>
+      <button class="small" data-act="refresh" title="他の人の入力を読み込みます">更新</button>
+      <button class="small" data-act="store-settings">店舗・ブロック設定</button>
+      <span class="user">${esc(u.name)} <span class="role ${u.role}">${ROLE_LABEL[u.role] || u.role}</span>
+        ${u.requestedRole === 'admin' ? '<span class="badge warn">管理者 承認待ち</span>' : ''}</span>
+      <button class="small" data-act="change-pass">パスワード変更</button>
+      <button class="small" data-act="logout">ログアウト</button>
+    </div>
+  </header>
+  ${DEMO ? '<div class="banner demo">お試しモード:データはこのブラウザの中だけに保存されます(他の人とは共有されません)。本番では config.js に GAS のURLを設定します。</div>' : ''}
+  <div class="layout" id="layout"><main id="main"></main><aside id="todo"></aside></div>`;
+}
+function tabsHtml() {
+  const tabs = TABS.slice();
+  if (session.user.role === 'admin') tabs.push(['accounts', 'アカウント管理']);
+  return tabs.map(([k, l]) => `<button class="${state.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}">${l}</button>`).join('');
+}
+function mainHtml() {
+  if (state.tab === 'accounts' && session.user.role !== 'admin') state.tab = 'calendar';
+  switch (state.tab) {
+    case 'plan': return viewPlan();
+    case 'effect': return viewEffect();
+    case 'budget': return viewBudget();
+    case 'accounts': return viewAccounts();
+    default: return viewCalendar();
+  }
+}
+
+// ---------------------------------------------------------------- カレンダー
+function viewCalendar() {
+  const [y, m] = state.ym.split('-').map(Number);
+  const modes = { store: '店舗別', month: 'カレンダー', list: '一覧' };
+  return `
+  <div class="view-head">
+    <div class="seg">${Object.keys(modes).map(k => `<button class="${state.calMode === k ? 'on' : ''}" data-act="cal-mode" data-v="${k}">${modes[k]}</button>`).join('')}</div>
+    <div class="month-nav">
+      <button data-act="month-step" data-v="-1" aria-label="前の月">‹</button>
+      <strong>${y}年${m}月</strong>
+      <button data-act="month-step" data-v="1" aria-label="次の月">›</button>
+      <button class="small" data-act="month-today">今月</button>
+    </div>
+    <div class="grow"></div>
+    <span class="muted small-text">
+      <span class="typetag t-visit"></span>来場型
+      <span class="typetag t-all" style="margin-left:8px"></span>全店共通
+      <span class="typetag t-exhibit" style="margin-left:8px"></span>出展
+      <span class="typetag t-big" style="margin-left:8px"></span>大型出展
+    </span>
+    <button class="primary" data-act="new-event">＋ イベントを登録</button>
+  </div>
+  ${filterHtml()}
+  ${state.calMode === 'month' ? calMonth(y, m) : state.calMode === 'list' ? calList(y, m) : calStore(y, m)}`;
+}
+function filterHtml() {
+  const groups = blocks().map(b => {
+    const ss = stores().filter(s => s.blockId === b.id);
+    if (!ss.length) return '';
+    const allOn = ss.every(s => !isHidden(s.id));
+    return `<div class="fgroup">
+      <button class="fchip blk ${allOn ? 'on' : ''}" data-act="filter-block" data-v="${b.id}">${esc(b.name)}</button>
+      ${ss.map(s => `<button class="fchip ${isHidden(s.id) ? '' : 'on'}" data-act="filter-store" data-v="${s.id}">${esc(s.name)}</button>`).join('')}
+    </div>`;
+  }).join('');
+  return `<div class="filters">${groups}<button class="link small" data-act="filter-all">すべて表示</button></div>`;
+}
+function monthBounds(y, m) { return [`${y}-${pad(m)}-01`, `${y}-${pad(m)}-${pad(daysIn(y, m))}`]; }
+
+function assignLanes(evs, first, last) {
+  const lanes = [];
+  return evs.slice().sort((a, b) => a.start.localeCompare(b.start) || diffDays(b.start, evEnd(b)) - diffDays(a.start, evEnd(a)))
+    .map(e => {
+      const s = e.start < first ? first : e.start;
+      const en = evEnd(e) > last ? last : evEnd(e);
+      let lane = lanes.findIndex(endDs => endDs < s);
+      if (lane < 0) { lane = lanes.length; lanes.push(en); } else lanes[lane] = en;
+      return { e, lane, c1: diffDays(first, s) + 1, c2: diffDays(first, en) + 1 };
+    });
+}
+function calStore(y, m) {
+  const [first, last] = monthBounds(y, m);
+  const n = daysIn(y, m);
+  const td = today();
+  const days = [];
+  for (let i = 0; i < n; i++) { const ds = addDays(first, i); days.push({ ds, d: i + 1, w: dow(ds), cls: dayClass(ds) }); }
+  const evs = evList().filter(e => e.start && e.start <= last && evEnd(e) >= first);
+  const rows = [
+    { label: '大型出展', cls: 'row-big', sid: '__big', events: evs.filter(e => e.type === BIG) },
+    { label: '全店共通', cls: 'row-all', sid: 'all', events: evs.filter(e => isAll(e) && e.type !== BIG) }
+  ];
+  const addStoreRows = (title, ss) => {
+    ss = ss.filter(s => !isHidden(s.id));
+    if (!ss.length) return;
+    rows.push({ block: title });
+    ss.forEach(s => rows.push({ label: s.name, sid: s.id, events: evs.filter(e => (e.stores || []).includes(s.id) || (e.type === BIG && isAll(e))) }));
+  };
+  blocks().forEach(b => addStoreRows(b.name, stores().filter(s => s.blockId === b.id)));
+  const bl = blocks().map(b => b.id);
+  addStoreRows('(ブロック未設定)', stores().filter(s => !bl.includes(s.blockId)));
+
+  const head = `<div class="sg-row sg-head"><div class="sg-name">店舗</div><div class="sg-days" style="--n:${n}">${days.map(d =>
+    `<div class="sg-day ${d.cls} ${d.ds === td ? 'today' : ''}" title="${esc(holidayName(d.ds))}">${d.d}<small>${WD[d.w]}</small></div>`).join('')}</div></div>`;
+  const body = rows.map(r => {
+    if (r.block) return `<div class="sg-row sg-block"><div class="sg-name">${esc(r.block)}</div><div class="sg-days" style="--n:${n}"></div></div>`;
+    const placed = assignLanes(r.events, first, last);
+    const lanes = Math.max(1, ...placed.map(p => p.lane + 1));
+    const bg = days.map((d, i) => `<div class="sg-bg ${d.cls}" style="grid-column:${i + 1};grid-row:1/-1"></div>`).join('');
+    const bars = placed.map(p => `<div class="bar ${typeClass(p.e)}" data-act="edit-event" data-id="${p.e.id}"
+        style="grid-column:${p.c1}/${p.c2 + 1};grid-row:${p.lane + 1}"
+        title="${esc(p.e.name)}\n${esc(dateRange(p.e))} / ${esc(p.e.type)}\n${esc(storeLabel(p.e))}">${esc(p.e.name)}</div>`).join('');
+    return `<div class="sg-row ${r.cls || ''}"><div class="sg-name">${esc(r.label)}</div>
+      <div class="sg-track" data-act="track" data-sid="${r.sid}" data-first="${first}" style="--n:${n};--lanes:${lanes}">${bg}${bars}</div></div>`;
+  }).join('');
+  return `<div class="sg-wrap" id="sg-scroll"><div class="sg">${head}${body}</div></div>
+    <p class="muted small-text">空いているところをクリックすると、その日・その店舗でイベントを登録できます。</p>`;
+}
+function calMonth(y, m) {
+  const [first, last] = monthBounds(y, m);
+  const start = addDays(first, -dow(first));
+  const end = addDays(last, 6 - dow(last));
+  const td = today();
+  const evs = evList().filter(e => e.start && visibleByFilter(e));
+  let cells = '';
+  for (let d = start; d <= end; d = addDays(d, 1)) {
+    const hol = holidayName(d);
+    const chips = evs.filter(e => e.start <= d && evEnd(e) >= d).map(e =>
+      `<div class="chip ${typeClass(e)}" data-act="edit-event" data-id="${e.id}" title="${esc(e.name)} / ${esc(storeLabel(e))}">${esc(storeLabel(e))}|${esc(e.name)}</div>`).join('');
+    cells += `<div class="mc-cell ${dayClass(d)} ${d < first || d > last ? 'out' : ''} ${d === td ? 'today' : ''}" data-act="day-new" data-date="${d}">
+      <div class="mc-date"><b>${Number(d.slice(8))}</b>${hol ? `<span class="mc-hol">${esc(hol)}</span>` : ''}</div>${chips}</div>`;
+  }
+  return `<div class="mc">${WD.map((w, i) => `<div class="mc-wd ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</div>`).join('')}${cells}</div>`;
+}
+function calList(y, m) {
+  const [first, last] = monthBounds(y, m);
+  const evs = evList().filter(e => e.start && e.start <= last && evEnd(e) >= first && visibleByFilter(e));
+  if (!evs.length) return `<div class="panel empty">この月のイベントはまだありません</div>`;
+  return `<div class="table-wrap"><table>
+    <tr><th>日付</th><th>イベント名</th><th>種類</th><th>店舗</th><th class="num">予算</th><th class="num">使用金額</th><th>成果</th></tr>
+    ${evs.map(e => `<tr class="clickable" data-act="edit-event" data-id="${e.id}">
+      <td class="nowrap">${dateRange(e)}</td><td><span class="typetag ${typeClass(e)}"></span>${esc(e.name)}</td>
+      <td class="nowrap">${esc(e.type)}</td><td>${esc(storeLabel(e))}</td>
+      <td class="num">${yen(budgetOf(e))}</td><td class="num">${yen(usedOf(e))}</td><td>${resultBadge(e)}</td></tr>`).join('')}
+  </table></div>`;
+}
+function resultBadge(e) {
+  if (hasResult(e)) return '<span class="badge ok">入力済み</span>';
+  if (evEnd(e) < today()) return '<span class="badge warn">未入力</span>';
+  return '<span class="badge gray">開催前</span>';
+}
+
+// ---------------------------------------------------------------- ToDo
+const recentDone = new Set();
+function todoItems() {
+  const out = [];
+  evList().forEach(e => {
+    if (!e.start) return;
+    TODO_DEFS.forEach(d => out.push({ e, d, key: e.id + ':' + d.key, due: d.due(e), done: todoDone(e, d.key) }));
+  });
+  return out.sort((a, b) => a.due.localeCompare(b.due));
+}
+function todoHtml() {
+  const items = todoItems();
+  const open = items.filter(i => !i.done).length;
+  if (state.todoClosed) return `<div class="todo closed"><button data-act="todo-toggle">ToDo(${open})を開く</button></div>`;
+  const td = today();
+  const shown = items.filter(i => !i.done || state.showDone || recentDone.has(i.key));
+  const list = shown.map(i => {
+    const left = diffDays(td, i.due);
+    const cls = i.done ? '' : left < 0 ? 'over' : left <= 3 ? 'soon' : '';
+    const dueText = i.done ? md(i.due) : left < 0 ? `${md(i.due)} 期限切れ` : left === 0 ? '今日まで' : `${md(i.due)} あと${left}日`;
+    const auto = i.d.key === 'result' && hasResult(i.e);
+    return `<div class="todo-item ${i.done ? 'done' : ''}">
+      <input type="checkbox" data-act="todo-check" data-id="${i.e.id}" data-k="${i.d.key}" ${i.done ? 'checked' : ''} ${auto ? 'disabled title="成果を入力したので自動で完了しています"' : ''} aria-label="${esc(i.d.label)}を完了にする">
+      <div class="grow">
+        <div class="t1">${esc(i.d.label)}</div>
+        <div class="t2"><a href="#" data-act="${i.d.key === 'result' ? 'result-event' : 'edit-event'}" data-id="${i.e.id}">${esc(i.e.name)}</a> / ${esc(storeLabel(i.e))}</div>
+        <span class="due ${cls}">${dueText}</span>
+        ${recentDone.has(i.key) && i.done ? `<button class="link small" data-act="todo-undo" data-id="${i.e.id}" data-k="${i.d.key}">元に戻す</button>` : ''}
+      </div></div>`;
+  }).join('');
+  return `<div class="todo">
+    <div class="todo-head"><h3>ToDo</h3><span class="badge gray">${open}件</span><div class="grow"></div>
+      <button class="link small" data-act="todo-toggle">閉じる</button></div>
+    <label class="chk small-text"><input type="checkbox" data-act="todo-showdone" ${state.showDone ? 'checked' : ''}> 完了したタスクも表示</label>
+    ${list || '<div class="empty small-text">やることはありません</div>'}
+  </div>`;
+}
+
+// ---------------------------------------------------------------- 期間・店舗の選択
+function fyOptions(sel) {
+  const base = fyOf(today());
+  const out = [];
+  for (let f = base - 3; f <= base + 1; f++) out.push(`<option value="${f}" ${f === sel ? 'selected' : ''}>${kiLabel(f)}</option>`);
+  return out.join('');
+}
+function periodHtml() {
+  const p = state.period;
+  const modes = { month: '月', quarter: '四半期', fy: '期(年度)' };
+  let pick = '';
+  if (p.mode === 'month') pick = `<input type="month" id="period-ym" data-act="period-ym" value="${p.ym}">`;
+  else {
+    pick = `<select id="period-fy" data-act="period-fy">${fyOptions(p.fy)}</select>`;
+    if (p.mode === 'quarter') pick += `<select id="period-q" data-act="period-q">${[1, 2, 3, 4].map(q => `<option value="${q}" ${q === p.q ? 'selected' : ''}>${Q_LABEL[q]}</option>`).join('')}</select>`;
+  }
+  return `<div class="seg">${Object.keys(modes).map(k => `<button class="${p.mode === k ? 'on' : ''}" data-act="period-mode" data-v="${k}">${modes[k]}</button>`).join('')}</div>${pick}`;
+}
+function periodRange() {
+  const p = state.period;
+  if (p.mode === 'month') { const [y, m] = p.ym.split('-').map(Number); return monthBounds(y, m); }
+  if (p.mode === 'quarter') return quarterRange(p.fy, p.q);
+  return [`${p.fy}-04-01`, `${p.fy + 1}-03-31`];
+}
+function storeSelect(id, act, sel, withAll) {
+  return `<select id="${id}" data-act="${act}">${withAll ? `<option value="all" ${sel === 'all' ? 'selected' : ''}>全店舗</option>` : ''}
+    ${blocks().map(b => `<optgroup label="${esc(b.name)}">${stores().filter(s => s.blockId === b.id).map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</optgroup>`).join('')}
+    ${stores().filter(s => !blocks().some(b => b.id === s.blockId)).map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+  </select>`;
+}
+function eventsIn(range, sid) {
+  return evList().filter(e => e.start && e.start >= range[0] && e.start <= range[1] && (sid === 'all' || participants(e).includes(sid)));
+}
+
+// ---------------------------------------------------------------- 四半期計画
+function viewPlan() {
+  const p = state.plan;
+  if (!storeById(p.storeId)) p.storeId = (storesOrdered()[0] || {}).id || '';
+  const sid = p.storeId;
+  if (!sid) return `<div class="panel empty">店舗がありません。「店舗・ブロック設定」から追加してください</div>`;
+  const range = quarterRange(p.fy, p.q);
+  const key = `plans/${p.fy}-q${p.q}-${sid}`;
+  const plan = getDoc(key) || {};
+  const evs = eventsIn(range, sid);
+  const budget = num(plan.budget);
+  const allocated = sum(evs, e => shareOf(e, sid));
+  const used = sum(evs, e => usedShare(e, sid));
+  const memos = (plan.memos || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return `
+  <div class="view-head">
+    ${storeSelect('plan-store', 'plan-store', sid, false)}
+    <select id="plan-fy" data-act="plan-fy">${fyOptions(p.fy)}</select>
+    <select id="plan-q" data-act="plan-q">${[1, 2, 3, 4].map(q => `<option value="${q}" ${q === p.q ? 'selected' : ''}>${Q_LABEL[q]}</option>`).join('')}</select>
+    <span class="muted small-text">${ymd(range[0])}〜${ymd(range[1])}</span>
+  </div>
+  <div class="cards">
+    <div class="card"><div class="lbl">四半期予算</div><input type="number" min="0" step="10000" id="plan-budget" data-act="plan-budget" value="${budget || ''}" placeholder="0"></div>
+    <div class="card"><div class="lbl">イベントに配分した予算</div><div class="val">${yen(allocated)}</div></div>
+    <div class="card"><div class="lbl">まだ配分していない予算</div><div class="val ${budget - allocated < 0 ? 'neg' : ''}">${yen(budget - allocated)}</div></div>
+    <div class="card"><div class="lbl">使用金額</div><div class="val ${used > budget && budget > 0 ? 'neg' : ''}">${yen(used)}</div></div>
+  </div>
+  <div class="panel">
+    <div class="view-head" style="margin-bottom:8px"><h3 style="margin:0">イベント計画</h3><div class="grow"></div>
+      <button class="small" data-act="new-event" data-store="${sid}" data-start="${range[0] > today() ? range[0] : (today() <= range[1] ? today() : range[0])}">＋ この店舗のイベントを登録</button></div>
+    ${evs.length ? `<div class="table-wrap"><table>
+      <tr><th>日付</th><th>イベント名</th><th>種類</th><th>区分</th><th class="num">予算</th><th class="num">使用金額</th></tr>
+      ${evs.map(e => `<tr>
+        <td class="nowrap">${dateRange(e)}</td>
+        <td><a href="#" data-act="edit-event" data-id="${e.id}"><span class="typetag ${typeClass(e)}"></span>${esc(e.name)}</a></td>
+        <td class="nowrap">${esc(e.type)}</td>
+        <td class="nowrap">${isSingle(e) ? '単独' : isAll(e) ? '全店共通' : '合同'}</td>
+        <td class="num">${isSingle(e)
+          ? `<input type="number" min="0" step="1000" id="pe-budget-${e.id}" data-act="event-budget" data-id="${e.id}" value="${num(e.budget) || ''}" placeholder="0">`
+          : `${yen(shareOf(e, sid))} <button class="link small" data-act="alloc-event" data-id="${e.id}">割り振る</button>`}</td>
+        <td class="num">${yen(usedShare(e, sid))}${isSingle(e) ? '' : '<br><span class="muted small-text">按分</span>'}</td>
+      </tr>`).join('')}
+    </table></div>` : '<div class="empty">この四半期のイベントはまだありません</div>'}
+  </div>
+  <div class="panel">
+    <h3>打ち合わせメモ</h3>
+    <div class="memo-form">
+      <input type="date" id="memo-date" value="${today()}">
+      <textarea id="memo-text" placeholder="打ち合わせの内容"></textarea>
+      <button class="primary" data-act="memo-add">追加</button>
+    </div>
+    ${memos.length ? memos.map(mm => `<div class="memo"><div class="d">${ymd(mm.date)}${mm.by ? `<br>${esc(mm.by)}` : ''}</div><div class="txt">${esc(mm.text)}</div>
+      <button class="link small danger-text" data-act="memo-del" data-id="${mm.id}">削除</button></div>`).join('') : '<div class="muted small-text">メモはまだありません</div>'}
+  </div>`;
+}
+
+// ---------------------------------------------------------------- 予算管理
+function viewBudget() {
+  const sid = state.bStore;
+  const range = periodRange();
+  const evs = eventsIn(range, sid);
+  const bOf = e => sid === 'all' ? budgetOf(e) : shareOf(e, sid);
+  const uOf = e => sid === 'all' ? usedOf(e) : usedShare(e, sid);
+  const tb = sum(evs, bOf), tu = sum(evs, uOf);
+  const over = evs.filter(e => uOf(e) > bOf(e));
+  // 項目ごとの使用金額
+  const byItem = {};
+  evs.forEach(e => {
+    const r = ratio(e, sid);
+    (e.expenses || []).forEach(x => {
+      const k = x.costItemId || '';
+      byItem[k] = byItem[k] || { total: 0, count: 0 };
+      byItem[k].total += num(x.amount) * r; byItem[k].count++;
+    });
+  });
+  const itemRows = Object.keys(byItem).sort((a, b) => byItem[b].total - byItem[a].total);
+  return `
+  <div class="view-head">
+    ${periodHtml()}
+    ${storeSelect('b-store', 'b-store', sid, true)}
+    <div class="grow"></div>
+    <button data-act="cost-master">費用項目マスター</button>
+  </div>
+  ${over.length ? `<div class="banner warn">予算を超えているイベントが ${over.length} 件あります:${over.map(e => esc(e.name)).join('、')}</div>` : ''}
+  <div class="cards">
+    <div class="card"><div class="lbl">予算合計</div><div class="val">${yen(tb)}</div></div>
+    <div class="card"><div class="lbl">使用金額</div><div class="val ${tu > tb ? 'neg' : ''}">${yen(tu)}</div></div>
+    <div class="card"><div class="lbl">残り</div><div class="val ${tb - tu < 0 ? 'neg' : ''}">${yen(tb - tu)}</div></div>
+    <div class="card"><div class="lbl">消化率</div><div class="val">${pct(tu, tb)}</div></div>
+  </div>
+  <div class="panel">
+    <h3>イベントごとの予算と使用金額</h3>
+    ${sid !== 'all' ? '<p class="muted small-text" style="margin-top:-4px">合同・全店共通イベントは、この店舗に割り振った予算と、按分した使用金額を表示しています。明細はイベント全体の金額です。</p>' : ''}
+    ${evs.length ? `<div class="table-wrap"><table>
+      <tr><th></th><th>日付</th><th>イベント名</th><th>店舗</th><th class="num">予算</th><th class="num">使用金額</th><th class="num">残り</th></tr>
+      ${evs.map(e => {
+        const b = bOf(e), u = uOf(e), op = !!state.open[e.id];
+        return `<tr class="clickable ${u > b ? 'over' : ''}" data-act="toggle-exp" data-id="${e.id}">
+          <td>${op ? '▾' : '▸'}</td><td class="nowrap">${dateRange(e)}</td><td><span class="typetag ${typeClass(e)}"></span>${esc(e.name)}</td>
+          <td>${esc(storeLabel(e))}</td><td class="num">${yen(b)}</td><td class="num">${yen(u)}</td>
+          <td class="num ${b - u < 0 ? 'red' : ''}">${yen(b - u)}</td></tr>
+          ${op ? `<tr><td colspan="7" class="exp-box">${expenseEditor(e)}</td></tr>` : ''}`;
+      }).join('')}
+    </table></div>` : '<div class="empty">この期間のイベントはありません</div>'}
+  </div>
+  <div class="panel">
+    <h3>項目ごとの使用金額</h3>
+    ${itemRows.length ? `<table>
+      <tr><th>項目</th><th class="num">件数</th><th class="num">使用金額</th></tr>
+      ${itemRows.map(k => `<tr class="clickable" data-act="item-detail" data-v="${esc(k)}"><td>${esc(k ? costName(k) : '(項目なし)')}</td>
+        <td class="num">${byItem[k].count}</td><td class="num">${yen(byItem[k].total)}</td></tr>`).join('')}
+      <tr class="total"><td>合計</td><td></td><td class="num">${yen(tu)}</td></tr>
+    </table><p class="muted small-text">項目をクリックすると「いつ・どのイベントで・何に・いくら」の明細が開きます。</p>` : '<div class="muted small-text">使用金額の明細はまだありません</div>'}
+  </div>`;
+}
+function expenseEditor(e) {
+  const xs = e.expenses || [];
+  const budgetPart = isSingle(e)
+    ? `予算 <input type="number" min="0" step="1000" id="ex-budget-${e.id}" data-act="event-budget" data-id="${e.id}" value="${num(e.budget) || ''}" placeholder="0" style="width:130px"> 円`
+    : `予算 ${yen(budgetOf(e))} <button class="small" data-act="alloc-event" data-id="${e.id}">予算を割り振る</button>`;
+  return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">${budgetPart}
+    <div class="grow"></div><button class="small" data-act="edit-event" data-id="${e.id}">イベントを編集</button></div>
+    <table class="exp">
+      <tr><th style="width:140px">日付</th><th style="width:170px">項目</th><th>内容</th><th style="width:130px" class="num">金額</th><th style="width:56px"></th></tr>
+      ${xs.map(x => `<tr>
+        <td><input type="date" id="ex-${e.id}-${x.id}-date" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="date" value="${esc(x.date || '')}"></td>
+        <td><select id="ex-${e.id}-${x.id}-item" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="costItemId">
+          ${costItems().map(c => `<option value="${c.id}" ${c.id === x.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+          ${x.costItemId && !costItems().some(c => c.id === x.costItemId) ? `<option value="${esc(x.costItemId)}" selected>(削除された項目)</option>` : ''}</select></td>
+        <td><input id="ex-${e.id}-${x.id}-desc" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="desc" value="${esc(x.desc || '')}" placeholder="例:A4チラシ 5,000部"></td>
+        <td><input type="number" id="ex-${e.id}-${x.id}-amount" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="amount" value="${num(x.amount) || ''}" placeholder="0"></td>
+        <td class="nowrap"><button class="link small danger-text" data-act="exp-del" data-id="${e.id}" data-x="${x.id}">削除</button></td></tr>`).join('')}
+    </table>
+    <button class="small" style="margin-top:6px" data-act="exp-add" data-id="${e.id}">＋ 明細を追加</button>`;
+}
+
+// ---------------------------------------------------------------- 効果検証
+function viewEffect() {
+  const sid = state.eStore;
+  const evs = eventsIn(periodRange(), sid);
+  const uOf = e => sid === 'all' ? usedOf(e) : usedShare(e, sid);
+  const visits = evs.filter(e => category(e) === 'visit');
+  const exh = evs.filter(e => category(e) === 'exhibit');
+  const R = e => e.result || {};
+  const missing = evs.filter(e => !hasResult(e) && evEnd(e) < today()).length;
+  const tv = (list, f) => sum(list.filter(hasResult), e => num(R(e)[f]));
+  const vV = tv(visits, 'visits'), vN = tv(visits, 'newVisits'), vA = tv(visits, 'appts'), vU = sum(visits.filter(hasResult), uOf);
+  const xL = tv(exh, 'leads'), xA = tv(exh, 'appts'), xU = sum(exh.filter(hasResult), uOf);
+  const cell = (e, v) => hasResult(e) ? v : '';
+  const notes = e => {
+    const g = R(e).good, i = R(e).improve;
+    return [g ? `<b>良</b> ${esc(g)}` : '', i ? `<b>改</b> ${esc(i)}` : ''].filter(Boolean).join('<br>');
+  };
+  return `
+  <div class="view-head">${periodHtml()}${storeSelect('e-store', 'e-store', sid, true)}</div>
+  ${missing ? `<div class="banner warn" style="background:var(--warn-weak);color:var(--warn)">終わったのに成果が未入力のイベントが ${missing} 件あります</div>` : ''}
+  <div class="panel">
+    <h3>来場型イベント</h3>
+    ${visits.length ? `<div class="table-wrap"><table>
+      <tr><th>日付</th><th>イベント名</th><th>店舗</th><th>状態</th><th class="num">来場組数</th><th class="num">うち新規</th><th class="num">新規率</th><th class="num">次回アポ</th><th class="num">アポ率</th><th class="num">使用金額</th><th class="num">1組あたり</th><th>良かった点・改善点</th></tr>
+      ${visits.map(e => { const r = R(e); return `<tr class="clickable" data-act="result-event" data-id="${e.id}">
+        <td class="nowrap">${dateRange(e)}</td><td>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}</span></td><td>${esc(storeLabel(e))}</td><td>${resultBadge(e)}</td>
+        <td class="num">${cell(e, num(r.visits))}</td><td class="num">${cell(e, num(r.newVisits))}</td><td class="num">${cell(e, pct(num(r.newVisits), num(r.visits)))}</td>
+        <td class="num">${cell(e, num(r.appts))}</td><td class="num">${cell(e, pct(num(r.appts), num(r.visits)))}</td>
+        <td class="num">${yen(uOf(e))}</td><td class="num">${cell(e, per(uOf(e), num(r.visits)))}</td><td class="small-text">${notes(e)}</td></tr>`; }).join('')}
+      <tr class="total"><td colspan="4">合計(入力済みのみ)</td><td class="num">${vV}</td><td class="num">${vN}</td><td class="num">${pct(vN, vV)}</td><td class="num">${vA}</td><td class="num">${pct(vA, vV)}</td><td class="num">${yen(vU)}</td><td class="num">${per(vU, vV)}</td><td></td></tr>
+    </table></div>` : '<div class="empty">この期間の来場型イベントはありません</div>'}
+  </div>
+  <div class="panel">
+    <h3>出展イベント</h3>
+    ${exh.length ? `<div class="table-wrap"><table>
+      <tr><th>日付</th><th>イベント名</th><th>店舗</th><th>状態</th><th class="num">名簿獲得数</th><th class="num">アポ数</th><th class="num">アポ率</th><th class="num">使用金額</th><th class="num">名簿1件あたり</th><th class="num">アポ1件あたり</th><th>良かった点・改善点</th></tr>
+      ${exh.map(e => { const r = R(e); return `<tr class="clickable" data-act="result-event" data-id="${e.id}">
+        <td class="nowrap">${dateRange(e)}</td><td>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}</span></td><td>${esc(storeLabel(e))}</td><td>${resultBadge(e)}</td>
+        <td class="num">${cell(e, num(r.leads))}</td><td class="num">${cell(e, num(r.appts))}</td><td class="num">${cell(e, pct(num(r.appts), num(r.leads)))}</td>
+        <td class="num">${yen(uOf(e))}</td><td class="num">${cell(e, per(uOf(e), num(r.leads)))}</td><td class="num">${cell(e, per(uOf(e), num(r.appts)))}</td><td class="small-text">${notes(e)}</td></tr>`; }).join('')}
+      <tr class="total"><td colspan="4">合計(入力済みのみ)</td><td class="num">${xL}</td><td class="num">${xA}</td><td class="num">${pct(xA, xL)}</td><td class="num">${yen(xU)}</td><td class="num">${per(xU, xL)}</td><td class="num">${per(xU, xA)}</td><td></td></tr>
+    </table></div>` : '<div class="empty">この期間の出展イベントはありません</div>'}
+  </div>
+  <p class="muted small-text">行をクリックすると成果を入力できます。${sid !== 'all' ? '店舗で絞り込んだときの使用金額は按分した額です(成果の数はイベント全体の数)。' : ''}</p>`;
+}
+
+// ---------------------------------------------------------------- アカウント管理
+async function loadUsers() {
+  try { const r = await api('listUsers'); state.users = r.users; render(); }
+  catch (e) { toast(e.message, { err: true }); }
+}
+function viewAccounts() {
+  if (!state.users) { loadUsers(); return '<div class="panel empty">読み込み中…</div>'; }
+  const users = state.users;
+  const me = session.user;
+  const admins = users.filter(u => u.role === 'admin').length;
+  const q = state.accQ.trim().toLowerCase();
+  const list = users.filter(u => (!state.accRole || u.role === state.accRole) && (!q || u.name.toLowerCase().includes(q) || u.email.includes(q)))
+    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+  const pending = users.filter(u => u.requestedRole === 'admin');
+  return `
+  ${pending.length ? `<div class="panel" style="border-color:#f2c779">
+    <h3>管理者の承認待ち(${pending.length}件)</h3>
+    ${pending.map(u => `<div style="display:flex;gap:10px;align-items:center;padding:6px 0;flex-wrap:wrap">
+      <b>${esc(u.name)}</b><span class="muted">${esc(u.email)}</span><span class="muted small-text">登録 ${fmtDT(u.createdAt)}</span><div class="grow"></div>
+      <button class="primary small" data-act="acc-approve" data-id="${u.id}">管理者にする</button>
+      <button class="small" data-act="acc-reject" data-id="${u.id}">却下(店長のまま)</button></div>`).join('')}
+  </div>` : ''}
+  <div class="cards">
+    <div class="card"><div class="lbl">登録者</div><div class="val">${users.length}人</div></div>
+    ${['admin', 'manager', 'staff'].map(r => `<div class="card"><div class="lbl">${ROLE_LABEL[r]}</div><div class="val">${users.filter(u => u.role === r).length}人</div></div>`).join('')}
+  </div>
+  <div class="panel">
+    <div class="view-head">
+      <input id="acc-q" data-act="acc-q" placeholder="名前・メールで検索" value="${esc(state.accQ)}">
+      <select id="acc-role" data-act="acc-role-filter"><option value="">すべての権限</option>
+        ${['admin', 'manager', 'staff'].map(r => `<option value="${r}" ${state.accRole === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>
+      <div class="grow"></div><button class="small" data-act="acc-reload">最新にする</button>
+    </div>
+    <div class="table-wrap"><table>
+      <tr><th>名前</th><th>メールアドレス</th><th>権限</th><th>登録日時</th><th>最終ログイン</th><th>パスワード</th><th></th></tr>
+      ${list.map(u => {
+        const self = u.id === me.id;
+        const lastAdmin = u.role === 'admin' && admins <= 1;
+        const confirming = state.accConfirm === u.id;
+        return `<tr>
+          <td>${esc(u.name)}${self ? ' <span class="badge gray">自分</span>' : ''}</td><td>${esc(u.email)}</td>
+          <td>${self || lastAdmin ? `<span class="role ${u.role}">${ROLE_LABEL[u.role]}</span>` :
+            `<select id="acc-r-${u.id}" data-act="acc-setrole" data-id="${u.id}">${['admin', 'manager', 'staff'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>`}</td>
+          <td class="nowrap small-text">${fmtDT(u.createdAt)}</td><td class="nowrap small-text">${fmtDT(u.lastLogin)}</td>
+          <td class="small-text">設定済み(暗号化)${u.mustChange ? '<br><span class="badge warn">仮パスワード</span>' : ''}</td>
+          <td class="nowrap">
+            ${self ? '' : `<button class="small" data-act="acc-reset" data-id="${u.id}">仮パスワード発行</button>`}
+            ${self || lastAdmin ? '' : confirming
+              ? `<button class="danger small" data-act="acc-delete" data-id="${u.id}">削除する</button><button class="link small" data-act="acc-cancel">やめる</button>`
+              : `<button class="link small danger-text" data-act="acc-delete-ask" data-id="${u.id}">削除</button>`}
+          </td></tr>`;
+      }).join('') || '<tr><td colspan="7" class="empty">該当するアカウントはありません</td></tr>'}
+    </table></div>
+    <p class="muted small-text">自分のアカウントと、最後の1人の管理者は削除できません。パスワードは暗号化して保存しているため、管理者でも中身は見られません。忘れた人には「仮パスワード発行」で新しいパスワードを伝えてください(次のログイン時に本人が変更します)。</p>
+  </div>`;
+}
+
+// ====================================================================== モーダル
+const modalStack = [];
+function openModal(m) { modalStack.push(m); renderModal(); }
+function closeModal() {
+  modalStack.pop(); renderModal();
+  if (!modalStack.length && pendingRender) render();
+}
+function topModal() { return modalStack[modalStack.length - 1]; }
+function renderModal() {
+  const m = topModal();
+  const root = $('modal-root');
+  if (!m) { root.innerHTML = ''; return; }
+  const html = MODALS[m.kind](m);
+  root.innerHTML = `<div class="modal-bg" data-act="modal-bg"><div class="modal ${m.wide ? 'wide' : ''}" role="dialog" aria-modal="true">${html}</div></div>`;
+  const f = root.querySelector('[autofocus]');
+  if (f && !m.focused) { f.focus(); m.focused = true; }
+}
+function modalErr(msg) { const el = document.querySelector('#modal-root .err'); if (el) el.textContent = msg; }
+
+const MODALS = {};
+
+// ---------------------------------------------------------------- イベント登録・編集
+function openEventModal(id, preset) {
+  const base = { id: null, name: '', type: VISIT_TYPES[0], start: today(), end: '', stores: [], budget: 0, memo: '', allocations: [], expenses: [], todos: {} };
+  const draft = id ? clone(getEvent(id)) : Object.assign(base, preset || {});
+  if (!draft) return;
+  openModal({ kind: 'event', draft, isNew: !id, confirmDel: false });
+}
+MODALS.event = m => {
+  const e = m.draft;
+  const all = isAll(e);
+  const typeOpts = `<optgroup label="来場型(お客様に来ていただく)">${VISIT_TYPES.map(t => `<option ${t === e.type ? 'selected' : ''}>${t}</option>`).join('')}</optgroup>
+    <optgroup label="出展型(外部会場に出ていく)">${EXHIBIT_TYPES.map(t => `<option ${t === e.type ? 'selected' : ''}>${t}</option>`).join('')}</optgroup>`;
+  const storeBox = blocks().map(b => {
+    const ss = stores().filter(s => s.blockId === b.id);
+    if (!ss.length) return '';
+    return `<div class="blk"><div class="blk-head">${esc(b.name)} <button type="button" class="link small" data-act="ev-block" data-v="${b.id}" ${all ? 'disabled' : ''}>まとめて選択</button></div>
+      ${ss.map(s => `<label class="chk"><input type="checkbox" class="ev-store" value="${s.id}" data-act="ev-store" ${(e.stores || []).includes(s.id) ? 'checked' : ''} ${all ? 'disabled' : ''}>${esc(s.name)}</label>`).join('')}</div>`;
+  }).join('');
+  const orphan = stores().filter(s => !blocks().some(b => b.id === s.blockId));
+  let budget;
+  if (!(e.stores || []).length) budget = '<div class="muted small-text">開催店舗を選ぶと予算を入力できます</div>';
+  else if (isSingle(e)) budget = `<input type="number" min="0" step="1000" id="ev-budget" value="${num(e.budget) || ''}" placeholder="0">`;
+  else budget = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>${yen(allocTotal(e))}</b>
+      <span class="muted small-text">(媒体項目 ${(e.allocations || []).length}件)</span>
+      <button type="button" data-act="ev-alloc">予算を割り振る</button></div>
+      <div class="muted small-text">全店共通・複数店舗のイベントは、店舗ごとに予算を割り振ります</div>`;
+  return `
+    <h2>${m.isNew ? 'イベントを登録' : 'イベントを編集'}</h2>
+    <label><span>イベント名 *</span><input id="ev-name" value="${esc(e.name)}" autofocus></label>
+    <div class="field"><div class="lbl">開催店舗 *</div>
+      <label class="chk"><input type="checkbox" id="ev-all" data-act="ev-all" ${all ? 'checked' : ''}><b>全店共通</b></label>
+      ${storeBox}
+      ${orphan.length ? `<div class="blk">${orphan.map(s => `<label class="chk"><input type="checkbox" class="ev-store" value="${s.id}" data-act="ev-store" ${(e.stores || []).includes(s.id) ? 'checked' : ''} ${all ? 'disabled' : ''}>${esc(s.name)}</label>`).join('')}</div>` : ''}
+    </div>
+    <div class="grid2">
+      <label><span>開始日 *</span><input type="date" id="ev-start" value="${esc(e.start || '')}"></label>
+      <label><span>終了日</span><input type="date" id="ev-end" value="${esc(e.end || '')}"></label>
+    </div>
+    <label><span>種類</span><select id="ev-type">${typeOpts}</select></label>
+    <div class="field"><div class="lbl">予算</div>${budget}</div>
+    <label><span>メモ</span><textarea id="ev-memo">${esc(e.memo || '')}</textarea></label>
+    <div class="err"></div>
+    <div class="foot">
+      ${m.isNew ? '' : m.confirmDel
+        ? '<button class="danger" data-act="ev-delete">削除する</button><button class="link" data-act="ev-delete-cancel">やめる</button>'
+        : '<button class="link danger-text" data-act="ev-delete-ask">削除</button>'}
+      ${m.isNew ? '' : '<button data-act="ev-result">成果を入力</button>'}
+      <div class="grow"></div>
+      <button data-act="modal-close">キャンセル</button>
+      <button class="primary" data-act="ev-save">保存</button>
+    </div>`;
+};
+function readEventForm(m) {
+  const e = m.draft;
+  e.name = $('ev-name').value.trim();
+  e.start = $('ev-start').value;
+  e.end = $('ev-end').value;
+  e.type = $('ev-type').value;
+  e.memo = $('ev-memo').value;
+  if ($('ev-budget')) e.budget = num($('ev-budget').value);
+  if ($('ev-all').checked) e.stores = ['all'];
+  else e.stores = [...document.querySelectorAll('#modal-root .ev-store:checked')].map(x => x.value);
+}
+
+// ---------------------------------------------------------------- 予算の割り振り
+function openAllocModal(e, onSave) {
+  const p = participants(e);
+  const draft = clone(e.allocations || []);
+  if (!draft.length) draft.push({ costItemId: (costItems()[0] || {}).id || '', amounts: {} });
+  openModal({ kind: 'alloc', wide: true, ev: e, stores: p, draft, onSave });
+}
+MODALS.alloc = m => {
+  const ss = m.stores;
+  return `
+    <h2>予算を割り振る</h2>
+    <p class="muted" style="margin-top:-6px">${esc(m.ev.name || '(イベント名未入力)')} / ${esc(storeLabel(m.ev))}</p>
+    ${m.draft.map((a, i) => `<div class="alloc">
+      <div class="alloc-head"><span class="muted small-text">媒体項目</span>
+        <select data-act="al-item" data-i="${i}">${costItems().map(c => `<option value="${c.id}" ${c.id === a.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+        <div class="grow"></div><button class="link small danger-text" data-act="al-del" data-i="${i}">この項目を削除</button></div>
+      <div class="alloc-auto"><span class="muted small-text">合計金額から振り分け</span>
+        <input type="number" min="0" step="1000" id="al-total-${i}" placeholder="例:300000">
+        <button class="small" data-act="al-even" data-i="${i}">均等に振り分け</button>
+        <button class="small" data-act="al-scale" data-i="${i}">店舗規模に応じて振り分け</button></div>
+      <table><tr><th>店舗</th><th class="num">規模</th><th class="num">金額(円)</th></tr>
+        ${ss.map(sid => `<tr><td>${esc(storeName(sid))}</td><td class="num muted">${num((storeById(sid) || {}).scale) || 1}</td>
+          <td class="num"><input type="number" min="0" step="1000" class="al-amt" data-act="al-amt" data-i="${i}" data-sid="${sid}" value="${num((a.amounts || {})[sid]) || ''}" placeholder="0"></td></tr>`).join('')}
+        <tr class="total"><td>小計</td><td></td><td class="num" id="al-sub-${i}">${yen(sum(ss, sid => num((a.amounts || {})[sid])))}</td></tr>
+      </table></div>`).join('')}
+    <button data-act="al-add">＋ 媒体項目を追加</button>
+    <p style="margin:12px 0 0">イベント全体の予算:<b id="al-grand" style="font-size:17px">${yen(allocGrand(m))}</b></p>
+    <div class="err"></div>
+    <div class="foot"><div class="grow"></div><button data-act="modal-close">キャンセル</button><button class="primary" data-act="al-save">決定</button></div>`;
+};
+function allocGrand(m) { return sum(m.draft, a => sum(m.stores, sid => num((a.amounts || {})[sid]))); }
+function distribute(total, weights) {
+  const W = sum(weights);
+  const out = weights.map(w => W > 0 ? Math.floor(total * w / W) : 0);
+  let rest = total - sum(out);
+  for (let i = 0; rest > 0 && out.length; i = (i + 1) % out.length, rest--) out[i]++;
+  return out;
+}
+
+// ---------------------------------------------------------------- 成果
+function openResultModal(id) {
+  const e = getEvent(id); if (!e) return;
+  openModal({ kind: 'result', id, draft: clone(e.result || {}) });
+}
+MODALS.result = m => {
+  const e = getEvent(m.id); const r = m.draft;
+  const n = (id, label, v) => `<label><span>${label}</span><input type="number" min="0" id="${id}" value="${v == null || v === '' ? '' : num(v)}" placeholder="0"></label>`;
+  const fields = category(e) === 'visit'
+    ? `<div class="grid2" style="grid-template-columns:1fr 1fr 1fr">${n('rs-visits', '来場組数', r.visits)}${n('rs-new', 'うち新規', r.newVisits)}${n('rs-appts', '次回アポ', r.appts)}</div>`
+    : `<div class="grid2">${n('rs-leads', '名簿獲得数', r.leads)}${n('rs-appts', 'アポ数', r.appts)}</div>`;
+  return `<h2>成果を入力</h2>
+    <p class="muted" style="margin-top:-6px">${esc(e.name)} / ${dateRange(e)} / ${esc(storeLabel(e))}<br>${esc(e.type)}(${category(e) === 'visit' ? '来場型' : '出展型'})</p>
+    ${fields}
+    <label><span>良かった点</span><textarea id="rs-good">${esc(r.good || '')}</textarea></label>
+    <label><span>改善点</span><textarea id="rs-improve">${esc(r.improve || '')}</textarea></label>
+    ${r.enteredBy ? `<p class="muted small-text">最終入力:${esc(r.enteredBy)} ${fmtDT(r.enteredAt)}</p>` : ''}
+    <div class="err"></div>
+    <div class="foot"><div class="grow"></div><button data-act="modal-close">キャンセル</button><button class="primary" data-act="rs-save">保存</button></div>`;
+};
+
+// ---------------------------------------------------------------- 店舗・ブロック設定
+MODALS.stores = m => {
+  const d = m.draft;
+  const used = sid => evList().filter(e => (e.stores || []).includes(sid)).length;
+  return `<h2>店舗・ブロック設定</h2>
+    <h3>ブロック</h3>
+    <table>${d.blocks.map((b, i) => `<tr><td><input data-act="st-block-name" data-i="${i}" value="${esc(b.name)}" style="width:100%"></td>
+      <td style="width:80px">${d.stores.some(s => s.blockId === b.id) ? '<span class="muted small-text">店舗あり</span>' : `<button class="link small danger-text" data-act="st-block-del" data-i="${i}">削除</button>`}</td></tr>`).join('')}</table>
+    <button class="small" style="margin:6px 0 16px" data-act="st-block-add">＋ ブロックを追加</button>
+    <h3>店舗</h3>
+    <div class="table-wrap"><table>
+      <tr><th>店舗名</th><th>ブロック</th><th class="num">規模(比率)</th><th></th></tr>
+      ${d.stores.map((s, i) => `<tr>
+        <td><input data-act="st-name" data-i="${i}" value="${esc(s.name)}" style="width:100%"></td>
+        <td><select data-act="st-blockid" data-i="${i}">${d.blocks.map(b => `<option value="${b.id}" ${b.id === s.blockId ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}
+          ${d.blocks.some(b => b.id === s.blockId) ? '' : '<option value="" selected>(未設定)</option>'}</select></td>
+        <td class="num"><input type="number" min="0" step="0.1" data-act="st-scale" data-i="${i}" value="${num(s.scale) || 1}" style="width:80px"></td>
+        <td class="nowrap">${m.confirm === i
+          ? `<button class="danger small" data-act="st-del" data-i="${i}">削除する</button><button class="link small" data-act="st-del-cancel">やめる</button>${used(s.id) ? `<br><span class="small-text red">イベント${used(s.id)}件で使われています</span>` : ''}`
+          : `<button class="link small danger-text" data-act="st-del-ask" data-i="${i}">削除</button>`}</td></tr>`).join('')}
+    </table></div>
+    <button class="small" style="margin-top:6px" data-act="st-add">＋ 店舗を追加</button>
+    <p class="muted small-text">規模(比率)は「店舗規模に応じて振り分け」で使います。例:大きい店舗を 2、小さい店舗を 1。</p>
+    <div class="err"></div>
+    <div class="foot"><div class="grow"></div><button data-act="modal-close">キャンセル</button><button class="primary" data-act="st-save">保存</button></div>`;
+};
+
+// ---------------------------------------------------------------- 費用項目マスター
+MODALS.cost = m => {
+  const used = id => sum(evList(), e => (e.expenses || []).filter(x => x.costItemId === id).length + (e.allocations || []).filter(a => a.costItemId === id).length);
+  return `<h2>費用項目マスター</h2>
+    <p class="muted small-text" style="margin-top:-6px">使用金額の明細と、予算の割り振りで使う項目(媒体項目)です。</p>
+    <table>${m.draft.map((c, i) => `<tr><td><input data-act="ci-name" data-i="${i}" value="${esc(c.name)}" style="width:100%"></td>
+      <td class="nowrap" style="width:150px">${m.confirm === i
+        ? `<button class="danger small" data-act="ci-del" data-i="${i}">削除する</button><button class="link small" data-act="ci-del-cancel">やめる</button>${used(c.id) ? `<br><span class="small-text red">${used(c.id)}件で使われています</span>` : ''}`
+        : `<button class="link small danger-text" data-act="ci-del-ask" data-i="${i}">削除</button>`}</td></tr>`).join('')}</table>
+    <button class="small" style="margin-top:6px" data-act="ci-add">＋ 項目を追加</button>
+    <div class="err"></div>
+    <div class="foot"><div class="grow"></div><button data-act="modal-close">キャンセル</button><button class="primary" data-act="ci-save">保存</button></div>`;
+};
+
+// ---------------------------------------------------------------- 項目ごとの明細
+MODALS.itemDetail = m => {
+  const sid = state.bStore;
+  const rows = [];
+  eventsIn(periodRange(), sid).forEach(e => {
+    const r = ratio(e, sid);
+    (e.expenses || []).filter(x => (x.costItemId || '') === m.item).forEach(x => rows.push({ e, x, amt: num(x.amount) * r }));
+  });
+  rows.sort((a, b) => (a.x.date || a.e.start).localeCompare(b.x.date || b.e.start));
+  return `<h2>${esc(m.item ? costName(m.item) : '(項目なし)')} の明細</h2>
+    <div class="table-wrap"><table>
+      <tr><th>いつ</th><th>どのイベントで</th><th>何に</th><th class="num">いくら</th></tr>
+      ${rows.map(r => `<tr><td class="nowrap">${r.x.date ? ymd(r.x.date) : dateRange(r.e)}</td><td>${esc(r.e.name)}<br><span class="muted small-text">${esc(storeLabel(r.e))}</span></td>
+        <td>${esc(r.x.desc || '')}</td><td class="num">${yen(r.amt)}${sid !== 'all' && !isSingle(r.e) ? `<br><span class="muted small-text">全体 ${yen(num(r.x.amount))}</span>` : ''}</td></tr>`).join('')}
+      <tr class="total"><td colspan="3">合計</td><td class="num">${yen(sum(rows, r => r.amt))}</td></tr>
+    </table></div>
+    <div class="foot"><div class="grow"></div><button data-act="modal-close">閉じる</button></div>`;
+};
+
+// ---------------------------------------------------------------- パスワード・仮パスワード
+MODALS.password = () => `<h2>パスワード変更</h2>
+  <label><span>今のパスワード</span><input type="password" id="pw-cur" autocomplete="current-password" autofocus></label>
+  <label><span>新しいパスワード(8文字以上)</span><input type="password" id="pw-new" autocomplete="new-password"></label>
+  <label><span>新しいパスワード(確認)</span><input type="password" id="pw-new2" autocomplete="new-password"></label>
+  <div class="err"></div>
+  <div class="foot"><div class="grow"></div><button data-act="modal-close">キャンセル</button><button class="primary" data-act="pw-save">変更する</button></div>`;
+MODALS.temp = m => `<h2>仮パスワードを発行しました</h2>
+  <p>${esc(m.user.name)}さん(${esc(m.user.email)})の仮パスワードです。本人に伝えてください。</p>
+  <div class="temp-pass">${esc(m.pass)}</div>
+  <p class="muted small-text">この画面を閉じると、もう表示できません。本人が次にログインすると、新しいパスワードへの変更を求められます。</p>
+  <div class="foot"><button data-act="copy-temp" data-v="${esc(m.pass)}">コピー</button><div class="grow"></div><button class="primary" data-act="modal-close">閉じる</button></div>`;
+
+// ====================================================================== 操作
+const ACT = { click: {}, change: {}, input: {} };
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-act]');
+  if (!el) return;
+  const fn = ACT.click[el.dataset.act];
+  if (!fn) return;
+  if (el.tagName === 'A') ev.preventDefault();
+  if (el.dataset.act === 'modal-bg' && ev.target !== el) return;
+  fn(el, ev);
+});
+['change', 'input'].forEach(type => document.addEventListener(type, ev => {
+  const el = ev.target.closest('[data-act]');
+  if (el && ACT[type][el.dataset.act]) ACT[type][el.dataset.act](el, ev);
+}));
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && modalStack.length) closeModal();
+  if (ev.key === 'Enter' && ev.target.id === 'memo-text' && (ev.ctrlKey || ev.metaKey)) ACT.click['memo-add']();
+});
+const C = ACT.click, CH = ACT.change, IN = ACT.input;
+
+function go(fn) { fn(); saveUi(); render(); }
+
+// ヘッダー
+C.tab = el => go(() => { state.tab = el.dataset.v; if (state.tab === 'accounts') state.users = null; });
+C.refresh = () => poll(true);
+C.logout = async () => {
+  try { await api('logout'); } catch (e) { }
+  forceLogout();
+};
+C['change-pass'] = () => openModal({ kind: 'password' });
+C['store-settings'] = () => openModal({ kind: 'stores', wide: true, draft: clone(storesCfg()), confirm: null });
+
+// カレンダー
+C['cal-mode'] = el => go(() => { state.calMode = el.dataset.v; });
+C['month-step'] = el => go(() => {
+  const [y, m] = state.ym.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + Number(el.dataset.v), 1));
+  state.ym = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
+});
+C['month-today'] = () => go(() => { state.ym = today().slice(0, 7); });
+C['filter-store'] = el => go(() => {
+  const id = el.dataset.v;
+  state.hidden = isHidden(id) ? state.hidden.filter(x => x !== id) : state.hidden.concat(id);
+});
+C['filter-block'] = el => go(() => {
+  const ids = stores().filter(s => s.blockId === el.dataset.v).map(s => s.id);
+  const allOn = ids.every(id => !isHidden(id));
+  state.hidden = allOn ? [...new Set(state.hidden.concat(ids))] : state.hidden.filter(x => !ids.includes(x));
+});
+C['filter-all'] = () => go(() => { state.hidden = []; });
+C['new-event'] = el => {
+  const preset = {};
+  if (el.dataset.store) preset.stores = [el.dataset.store];
+  if (el.dataset.start) preset.start = el.dataset.start;
+  openEventModal(null, preset);
+};
+C['edit-event'] = el => openEventModal(el.dataset.id);
+C['result-event'] = el => openResultModal(el.dataset.id);
+C['day-new'] = el => openEventModal(null, { start: el.dataset.date });
+C.track = (el, ev) => {
+  const rect = el.getBoundingClientRect();
+  const dw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dw')) || 34;
+  const idx = Math.max(0, Math.floor((ev.clientX - rect.left) / dw));
+  const start = addDays(el.dataset.first, idx);
+  const sid = el.dataset.sid;
+  const preset = { start };
+  if (sid === '__big') preset.type = BIG;
+  else if (sid === 'all') preset.stores = ['all'];
+  else preset.stores = [sid];
+  openEventModal(null, preset);
+};
+
+// ToDo
+C['todo-toggle'] = () => go(() => { state.todoClosed = !state.todoClosed; });
+CH['todo-showdone'] = el => go(() => { state.showDone = el.checked; });
+CH['todo-check'] = el => {
+  const e = clone(getEvent(el.dataset.id)); if (!e) return;
+  const k = el.dataset.k, key = e.id + ':' + k;
+  e.todos = Object.assign({}, e.todos, { [k]: el.checked });
+  if (el.checked) {
+    recentDone.add(key);
+    setTimeout(() => { recentDone.delete(key); scheduleRender(); }, 5000);
+  } else recentDone.delete(key);
+  saveDoc('events/' + e.id, e);
+};
+C['todo-undo'] = el => {
+  const e = clone(getEvent(el.dataset.id)); if (!e) return;
+  recentDone.delete(e.id + ':' + el.dataset.k);
+  e.todos = Object.assign({}, e.todos, { [el.dataset.k]: false });
+  saveDoc('events/' + e.id, e);
+};
+
+// 期間・店舗
+C['period-mode'] = el => go(() => { state.period.mode = el.dataset.v; });
+CH['period-ym'] = el => go(() => { if (el.value) state.period.ym = el.value; });
+CH['period-fy'] = el => go(() => { state.period.fy = Number(el.value); });
+CH['period-q'] = el => go(() => { state.period.q = Number(el.value); });
+CH['b-store'] = el => go(() => { state.bStore = el.value; });
+CH['e-store'] = el => go(() => { state.eStore = el.value; });
+
+// 四半期計画
+CH['plan-store'] = el => go(() => { state.plan.storeId = el.value; });
+CH['plan-fy'] = el => go(() => { state.plan.fy = Number(el.value); });
+CH['plan-q'] = el => go(() => { state.plan.q = Number(el.value); });
+function planKey() { const p = state.plan; return `plans/${p.fy}-q${p.q}-${p.storeId}`; }
+CH['plan-budget'] = el => {
+  const key = planKey();
+  const plan = Object.assign({ budget: 0, memos: [] }, clone(getDoc(key) || {}));
+  plan.budget = num(el.value);
+  saveDoc(key, plan);
+};
+C['memo-add'] = () => {
+  const text = $('memo-text').value.trim();
+  if (!text) { $('memo-text').focus(); return; }
+  const key = planKey();
+  const plan = Object.assign({ budget: 0, memos: [] }, clone(getDoc(key) || {}));
+  plan.memos = (plan.memos || []).concat({ id: uid(), date: $('memo-date').value || today(), text, by: session.user.name });
+  $('memo-text').value = '';
+  saveDoc(key, plan, 'メモを追加しました');
+};
+C['memo-del'] = el => {
+  if (!confirm('このメモを削除しますか?')) return;
+  const key = planKey();
+  const plan = clone(getDoc(key) || {});
+  plan.memos = (plan.memos || []).filter(x => x.id !== el.dataset.id);
+  saveDoc(key, plan);
+};
+CH['event-budget'] = el => {
+  const e = clone(getEvent(el.dataset.id)); if (!e) return;
+  e.budget = num(el.value);
+  saveDoc('events/' + e.id, e);
+};
+C['alloc-event'] = el => {
+  const e = getEvent(el.dataset.id); if (!e) return;
+  openAllocModal(e, allocs => {
+    const cur = clone(getEvent(e.id)); cur.allocations = allocs;
+    saveDoc('events/' + e.id, cur, '予算を割り振りました');
+  });
+};
+
+// 予算管理
+C['toggle-exp'] = el => go(() => { state.open[el.dataset.id] = !state.open[el.dataset.id]; });
+C['exp-add'] = el => {
+  const e = clone(getEvent(el.dataset.id)); if (!e) return;
+  e.expenses = (e.expenses || []).concat({ id: uid(), date: e.start, costItemId: (costItems()[0] || {}).id || '', desc: '', amount: 0 });
+  saveDoc('events/' + e.id, e);
+};
+CH['exp-field'] = el => {
+  const e = clone(getEvent(el.dataset.id)); if (!e) return;
+  const x = (e.expenses || []).find(r => r.id === el.dataset.x); if (!x) return;
+  x[el.dataset.f] = el.dataset.f === 'amount' ? num(el.value) : el.value;
+  saveDoc('events/' + e.id, e);
+};
+C['exp-del'] = el => {
+  const e = clone(getEvent(el.dataset.id)); if (!e) return;
+  e.expenses = (e.expenses || []).filter(r => r.id !== el.dataset.x);
+  saveDoc('events/' + e.id, e);
+};
+C['cost-master'] = () => openModal({ kind: 'cost', draft: clone(costItems()), confirm: null });
+C['item-detail'] = el => openModal({ kind: 'itemDetail', wide: true, item: el.dataset.v });
+
+// アカウント管理
+IN['acc-q'] = el => { state.accQ = el.value; render(); };
+CH['acc-role-filter'] = el => { state.accRole = el.value; render(); };
+C['acc-reload'] = () => loadUsers();
+async function accCall(action, params, msg) {
+  try {
+    const r = await api(action, params);
+    if (r.users) state.users = r.users;
+    state.accConfirm = null;
+    if (msg) toast(msg);
+    render();
+    return r;
+  } catch (e) { toast(e.message, { err: true }); render(); }
+}
+C['acc-approve'] = el => accCall('approveAdmin', { userId: el.dataset.id }, '管理者にしました');
+C['acc-reject'] = el => accCall('rejectAdmin', { userId: el.dataset.id }, '申請を却下しました');
+CH['acc-setrole'] = el => accCall('setRole', { userId: el.dataset.id, role: el.value }, '権限を変更しました');
+C['acc-delete-ask'] = el => { state.accConfirm = el.dataset.id; render(); };
+C['acc-cancel'] = () => { state.accConfirm = null; render(); };
+C['acc-delete'] = el => accCall('deleteUser', { userId: el.dataset.id }, 'アカウントを削除しました');
+C['acc-reset'] = async el => {
+  const u = state.users.find(x => x.id === el.dataset.id);
+  if (!confirm(`${u.name}さんの仮パスワードを発行しますか?\n今のパスワードは使えなくなります。`)) return;
+  const r = await accCall('resetPassword', { userId: u.id });
+  if (r && r.tempPassword) { openModal({ kind: 'temp', user: u, pass: r.tempPassword }); loadUsers(); }
+};
+C['copy-temp'] = el => {
+  try { navigator.clipboard.writeText(el.dataset.v).then(() => toast('コピーしました')); } catch (e) { toast('コピーできませんでした。手で選んでコピーしてください', { err: true }); }
+};
+
+// モーダル共通
+C['modal-close'] = () => closeModal();
+C['modal-bg'] = () => { const k = topModal().kind; if (k === 'itemDetail' || k === 'temp') closeModal(); };
+
+// イベントモーダル
+CH['ev-all'] = () => { const m = topModal(); readEventForm(m); renderModal(); };
+CH['ev-store'] = () => { const m = topModal(); readEventForm(m); renderModal(); };
+C['ev-block'] = el => {
+  const m = topModal(); readEventForm(m);
+  const ids = stores().filter(s => s.blockId === el.dataset.v).map(s => s.id);
+  const allOn = ids.every(id => m.draft.stores.includes(id));
+  m.draft.stores = allOn ? m.draft.stores.filter(x => !ids.includes(x)) : [...new Set(m.draft.stores.concat(ids))];
+  renderModal();
+};
+C['ev-alloc'] = () => {
+  const m = topModal(); readEventForm(m);
+  openAllocModal(m.draft, allocs => { m.draft.allocations = allocs; });
+};
+C['ev-delete-ask'] = () => { const m = topModal(); readEventForm(m); m.confirmDel = true; renderModal(); };
+C['ev-delete-cancel'] = () => { const m = topModal(); readEventForm(m); m.confirmDel = false; renderModal(); };
+C['ev-delete'] = () => { const m = topModal(); closeModal(); removeDoc('events/' + m.draft.id, 'イベントを削除しました'); };
+C['ev-result'] = () => { const m = topModal(); closeModal(); openResultModal(m.draft.id); };
+C['ev-save'] = () => {
+  const m = topModal(); readEventForm(m);
+  const e = m.draft;
+  if (!e.name) return modalErr('イベント名を入力してください');
+  if (!e.stores.length) return modalErr('開催店舗を選んでください');
+  if (!e.start) return modalErr('開始日を入力してください');
+  if (e.end && e.end < e.start) return modalErr('終了日は開始日より後にしてください');
+  if (e.end === e.start) e.end = '';
+  if (!e.id) { e.id = uid(); e.createdBy = session.user.name; e.createdAt = new Date().toISOString(); }
+  if (isSingle(e)) e.allocations = []; else delete e.budget;
+  e.updatedBy = session.user.name; e.updatedAt = new Date().toISOString();
+  closeModal();
+  saveDoc('events/' + e.id, e, m.isNew ? 'イベントを登録しました' : 'イベントを保存しました');
+};
+
+// 割り振りモーダル
+function readAllocAmounts(m) {
+  document.querySelectorAll('#modal-root .al-amt').forEach(inp => {
+    const a = m.draft[Number(inp.dataset.i)];
+    a.amounts = a.amounts || {};
+    a.amounts[inp.dataset.sid] = num(inp.value);
+  });
+}
+IN['al-amt'] = el => {
+  const m = topModal(); readAllocAmounts(m);
+  const i = Number(el.dataset.i);
+  $('al-sub-' + i).textContent = yen(sum(m.stores, sid => num(m.draft[i].amounts[sid])));
+  $('al-grand').textContent = yen(allocGrand(m));
+};
+CH['al-item'] = el => { const m = topModal(); m.draft[Number(el.dataset.i)].costItemId = el.value; };
+C['al-add'] = () => { const m = topModal(); readAllocAmounts(m); m.draft.push({ costItemId: (costItems()[0] || {}).id || '', amounts: {} }); renderModal(); };
+C['al-del'] = el => { const m = topModal(); readAllocAmounts(m); m.draft.splice(Number(el.dataset.i), 1); renderModal(); };
+function allocAuto(el, byScale) {
+  const m = topModal(); readAllocAmounts(m);
+  const i = Number(el.dataset.i);
+  const total = num($('al-total-' + i).value);
+  if (!total) { modalErr('先に合計金額を入れてください'); $('al-total-' + i).focus(); return; }
+  const w = m.stores.map(sid => byScale ? (num((storeById(sid) || {}).scale) || 1) : 1);
+  const out = distribute(Math.round(total), w);
+  m.draft[i].amounts = {};
+  m.stores.forEach((sid, j) => { m.draft[i].amounts[sid] = out[j]; });
+  renderModal();
+}
+C['al-even'] = el => allocAuto(el, false);
+C['al-scale'] = el => allocAuto(el, true);
+C['al-save'] = () => {
+  const m = topModal(); readAllocAmounts(m);
+  const allocs = m.draft.map(a => {
+    const amounts = {};
+    m.stores.forEach(sid => { const v = num((a.amounts || {})[sid]); if (v) amounts[sid] = v; });
+    return { costItemId: a.costItemId, amounts };
+  });
+  closeModal();
+  m.onSave(allocs);
+  renderModal();
+};
+
+// 成果モーダル
+C['rs-save'] = () => {
+  const m = topModal();
+  const e = clone(getEvent(m.id)); if (!e) return closeModal();
+  const v = id => $(id) ? ($(id).value === '' ? '' : num($(id).value)) : undefined;
+  const r = { entered: true, enteredBy: session.user.name, enteredAt: new Date().toISOString(), good: $('rs-good').value, improve: $('rs-improve').value };
+  if (category(e) === 'visit') {
+    Object.assign(r, { visits: v('rs-visits'), newVisits: v('rs-new'), appts: v('rs-appts') });
+    if (num(r.newVisits) > num(r.visits)) return modalErr('「うち新規」が来場組数より多くなっています');
+  } else Object.assign(r, { leads: v('rs-leads'), appts: v('rs-appts') });
+  e.result = r;
+  closeModal();
+  saveDoc('events/' + e.id, e, '成果を保存しました');
+};
+
+// 店舗設定モーダル
+const stDraft = () => topModal().draft;
+IN['st-block-name'] = el => { stDraft().blocks[Number(el.dataset.i)].name = el.value; };
+IN['st-name'] = el => { stDraft().stores[Number(el.dataset.i)].name = el.value; };
+CH['st-blockid'] = el => { stDraft().stores[Number(el.dataset.i)].blockId = el.value; };
+IN['st-scale'] = el => { stDraft().stores[Number(el.dataset.i)].scale = num(el.value); };
+C['st-block-add'] = () => { stDraft().blocks.push({ id: 'blk_' + uid(), name: '新しいブロック' }); renderModal(); };
+C['st-block-del'] = el => { stDraft().blocks.splice(Number(el.dataset.i), 1); renderModal(); };
+C['st-add'] = () => { const d = stDraft(); d.stores.push({ id: 'st_' + uid(), name: '新しい店舗', blockId: (d.blocks[0] || {}).id || '', scale: 1 }); renderModal(); };
+C['st-del-ask'] = el => { topModal().confirm = Number(el.dataset.i); renderModal(); };
+C['st-del-cancel'] = () => { topModal().confirm = null; renderModal(); };
+C['st-del'] = el => { const m = topModal(); m.draft.stores.splice(Number(el.dataset.i), 1); m.confirm = null; renderModal(); };
+C['st-save'] = () => {
+  const d = stDraft();
+  if (d.blocks.some(b => !b.name.trim()) || d.stores.some(s => !s.name.trim())) return modalErr('名前が空の行があります');
+  d.blocks.forEach(b => { b.name = b.name.trim(); });
+  d.stores.forEach(s => { s.name = s.name.trim(); s.scale = num(s.scale) || 1; });
+  closeModal();
+  saveDoc('config/stores', d, '店舗・ブロック設定を保存しました');
+};
+
+// 費用項目モーダル
+IN['ci-name'] = el => { topModal().draft[Number(el.dataset.i)].name = el.value; };
+C['ci-add'] = () => { topModal().draft.push({ id: 'ci_' + uid(), name: '' }); renderModal(); };
+C['ci-del-ask'] = el => { topModal().confirm = Number(el.dataset.i); renderModal(); };
+C['ci-del-cancel'] = () => { topModal().confirm = null; renderModal(); };
+C['ci-del'] = el => { const m = topModal(); m.draft.splice(Number(el.dataset.i), 1); m.confirm = null; renderModal(); };
+C['ci-save'] = () => {
+  const items = topModal().draft.map(c => ({ id: c.id, name: c.name.trim() })).filter(c => c.name);
+  if (!items.length) return modalErr('項目を1つ以上入れてください');
+  closeModal();
+  saveDoc('config/costItems', { items }, '費用項目を保存しました');
+};
+
+// パスワード変更
+C['pw-save'] = async () => {
+  const cur = $('pw-cur').value, p1 = $('pw-new').value, p2 = $('pw-new2').value;
+  if (p1.length < 8) return modalErr('新しいパスワードは8文字以上にしてください');
+  if (p1 !== p2) return modalErr('確認用のパスワードが一致しません');
+  try { await api('changePassword', { current: cur, password: p1 }); closeModal(); toast('パスワードを変更しました'); }
+  catch (e) { modalErr(e.message); }
+};
+
+// ====================================================================== 通知
+function toast(msg, opt) {
+  opt = opt || {};
+  const el = document.createElement('div');
+  el.className = 'toast' + (opt.err ? ' err' : '');
+  el.textContent = msg;
+  $('toast-root').appendChild(el);
+  setTimeout(() => el.remove(), opt.err ? 6000 : 2600);
+}
+
+// ====================================================================== ログイン画面
+let authMode = 'login', hasUsers = true, needsCode = false;
+async function showAuth(mode) {
+  authMode = mode;
+  modalStack.length = 0; renderModal();
+  if (mode === 'register') { try { const s = await api('status'); hasUsers = s.hasUsers; needsCode = !!s.needsCode; } catch (e) { } }
+  $('root').innerHTML = authHtml();
+  const f = $('root').querySelector('input'); if (f) f.focus();
+}
+function authHtml() {
+  const demo = DEMO ? '<div class="note" style="background:var(--warn-weak);color:var(--warn)">お試しモードです。登録した内容はこのブラウザの中だけに保存されます。</div>' : '';
+  if (authMode === 'change') return `<div class="auth"><div class="panel">
+    <h1>パスワードの変更</h1><p class="muted">仮パスワードでログインしました。新しいパスワードを決めてください。</p>
+    <form data-form="change">
+      <label><span>仮パスワード</span><input type="password" name="current" autocomplete="current-password" required></label>
+      <label><span>新しいパスワード(8文字以上)</span><input type="password" name="password" autocomplete="new-password" required></label>
+      <label><span>新しいパスワード(確認)</span><input type="password" name="password2" autocomplete="new-password" required></label>
+      <div class="err"></div><button class="primary">変更して始める</button>
+    </form>
+    <p style="text-align:center"><button class="link small" data-act="logout">ログアウト</button></p></div></div>`;
+  if (authMode === 'register') return `<div class="auth"><div class="panel">
+    <h1>新規登録</h1><p class="muted">店舗イベント管理を使うためのアカウントを作ります。</p>${demo}
+    ${hasUsers ? '' : '<div class="note">まだ誰も登録していません。最初に登録した人が管理者になります。</div>'}
+    <form data-form="register">
+      <label><span>権限</span><select name="role" ${hasUsers ? '' : 'disabled'}>
+        <option value="staff">スタッフ</option><option value="manager">店長</option><option value="admin" ${hasUsers ? '' : 'selected'}>管理者</option></select></label>
+      ${hasUsers ? '<div class="note">管理者を選んだ場合は、今いる管理者が承認すると管理者になります。承認されるまでは店長として使えます。</div>' : ''}
+      
+      ${needsCode ? '<label><span>登録用コード(管理者から聞いてください)</span><input name="code" autocomplete="off" required></label>' : ''}
+      <label><span>名前</span><input name="name" autocomplete="name" required></label>
+      <label><span>メールアドレス</span><input type="email" name="email" autocomplete="email" required></label>
+      <label><span>パスワード(8文字以上)</span><input type="password" name="password" autocomplete="new-password" required></label>
+      <label><span>パスワード(確認)</span><input type="password" name="password2" autocomplete="new-password" required></label>
+      <div class="err"></div><button class="primary">登録して始める</button>
+    </form>
+    <p style="text-align:center" class="small-text">登録済みの方は <button class="link" data-act="auth-login">ログイン</button></p></div></div>`;
+  return `<div class="auth"><div class="panel">
+    <h1>店舗イベント管理</h1><p class="muted">メールアドレスとパスワードでログインしてください。</p>${demo}
+    <form data-form="login">
+      <label><span>メールアドレス</span><input type="email" name="email" autocomplete="email" required></label>
+      <label><span>パスワード</span><input type="password" name="password" autocomplete="current-password" required></label>
+      <div class="err"></div><button class="primary">ログイン</button>
+    </form>
+    <p style="text-align:center" class="small-text">はじめての方は <button class="link" data-act="auth-register">新規登録</button></p>
+    <p class="muted small-text" style="text-align:center">パスワードを忘れたときは、管理者に仮パスワードの発行を頼んでください。</p></div></div>`;
+}
+C['auth-login'] = () => showAuth('login');
+C['auth-register'] = () => showAuth('register');
+document.addEventListener('submit', async ev => {
+  const form = ev.target.closest('[data-form]');
+  if (!form) return;
+  ev.preventDefault();
+  const fd = Object.fromEntries(new FormData(form).entries());
+  const err = form.querySelector('.err');
+  const btn = form.querySelector('button.primary');
+  err.textContent = '';
+  if ((form.dataset.form === 'register' || form.dataset.form === 'change')) {
+    if (String(fd.password).length < 8) { err.textContent = 'パスワードは8文字以上にしてください'; return; }
+    if (fd.password !== fd.password2) { err.textContent = '確認用のパスワードが一致しません'; return; }
+  }
+  btn.disabled = true;
+  try {
+    if (form.dataset.form === 'change') {
+      const r = await api('changePassword', { current: fd.current, password: fd.password });
+      session.user = r.user;
+      await startApp();
+      toast('パスワードを変更しました');
+      return;
+    }
+    const r = form.dataset.form === 'login'
+      ? await api('login', { email: fd.email, password: fd.password })
+      : await api('register', { email: fd.email, password: fd.password, name: fd.name, role: fd.role || 'admin', code: fd.code || '' });
+    session.token = r.token; session.user = r.user;
+    lsSet('evt-token', r.token);
+    if (r.user.mustChange) return showAuth('change');
+    await startApp();
+    if (form.dataset.form === 'register' && r.user.requestedRole === 'admin') toast('登録しました。管理者の承認待ちです(承認までは店長として使えます)');
+  } catch (e) {
+    if (e.code !== 'MUST_CHANGE') err.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+function forceLogout(msg) {
+  session.token = null; session.user = null;
+  lsSet('evt-token', null);
+  docs = {}; version = 0; state.users = null;
+  showAuth('login');
+  if (msg) toast(msg, { err: true });
+}
+
+// ====================================================================== 起動
+async function startApp() {
+  $('root').innerHTML = '<div class="auth"><div class="panel empty">読み込み中…</div></div>';
+  try {
+    await loadAll();
+  } catch (e) {
+    if (e.code === 'AUTH' || e.code === 'MUST_CHANGE') return;
+    $('root').innerHTML = `<div class="auth"><div class="panel"><h1>読み込めませんでした</h1><p class="red">${esc(e.message)}</p><button class="primary" onclick="location.reload()">もう一度読み込む</button></div></div>`;
+    return;
+  }
+  $('root').innerHTML = shellHtml();
+  render();
+}
+(async function boot() {
+  if (session.token) {
+    try {
+      const r = await api('me');
+      session.user = r.user;
+    } catch (e) {
+      if (e.code === 'AUTH') return;
+      if (e.code !== 'MUST_CHANGE') { session.token = null; lsSet('evt-token', null); }
+    }
+  }
+  if (!session.user) return showAuth('login');
+  if (session.user.mustChange) return showAuth('change');
+  startApp();
+})();
+</script>
+</body>
+</html>
