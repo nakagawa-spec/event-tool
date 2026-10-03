@@ -210,7 +210,7 @@ td input[type=number]{width:110px}
 .exp input,.exp select{width:100%}
 .exp-box{background:#f9fafb;padding:10px 12px}
 
-/* 使用実績入力 */
+/* 実績入力 */
 .store-pick{display:flex;align-items:center;gap:8px;font-weight:600}
 .store-pick select{font-size:15px;padding:6px 10px;min-width:180px;font-weight:600}
 button.big{font-size:15px;padding:8px 18px;font-weight:600}
@@ -222,6 +222,15 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .target-seg button.on{border-color:var(--accent);background:var(--accent-weak)}
 .target-seg button.on b{color:var(--accent)}
 .card .small-text{margin-top:2px}
+.num-badge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;margin-right:8px;vertical-align:1px}
+.todo-panel{border-color:#f2c779;background:#fffaf0}
+.todo-panel table{background:transparent}
+.rs-ev{background:#f7f8fa;border-radius:8px;padding:8px 12px;margin-bottom:12px}
+.rs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:6px}
+.rs-num small{display:block;font-size:11px;color:var(--muted);margin-top:3px;line-height:1.4}
+.rs-in{display:flex;align-items:center;gap:6px}
+.modal .rs-in input{font-size:20px;font-weight:700;padding:6px 10px}
+.rs-in em{font-style:normal;color:var(--muted)}
 
 @media (max-width:900px){
   .layout,.layout.todo-closed{grid-template-columns:minmax(0,1fr);padding:12px}
@@ -252,7 +261,7 @@ const EXHIBIT_TYPES = ['大型出展イベント', '出展イベント'];
 const BIG = '大型出展イベント';
 const ROLE_LABEL = { admin: '管理者', manager: '店長', staff: 'スタッフ' };
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
-const TABS = [['calendar', 'カレンダー'], ['actual', '使用実績入力'], ['plan', '四半期計画'], ['effect', '効果検証'], ['budget', '予算管理']];
+const TABS = [['calendar', 'カレンダー'], ['actual', '実績入力'], ['plan', '四半期計画'], ['effect', '効果検証'], ['budget', '予算管理']];
 
 const DEFAULT_STORES = {
   blocks: [
@@ -284,7 +293,7 @@ const DEFAULT_COST_ITEMS = {
 const TODO_DEFS = [
   { key: 'ad', label: '広告・イベントページ作成', due: e => addDays(e.start, -21) },
   { key: 'hp', label: 'HP UP・広告開始', due: e => addDays(e.start, -14) },
-  { key: 'result', label: '成果の詳細を入力', due: e => addDays(evEnd(e), 1) }
+  { key: 'result', label: '来場実績・成果を入力', due: e => addDays(evEnd(e), 1) }
 ];
 
 // ====================================================================== 小さな道具
@@ -314,6 +323,7 @@ function today() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getM
 function daysIn(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
 function md(s) { if (!s) return ''; const [, m, d] = s.split('-').map(Number); return `${m}/${d}(${WD[dow(s)]})`; }
 function ymd(s) { if (!s) return ''; const [y, m, d] = s.split('-').map(Number); return `${y}/${m}/${d}(${WD[dow(s)]})`; }
+function monthLabel(s) { if (!s) return ''; const [y, m] = s.split('-').map(Number); return `${y}年${m}月分`; }
 function dateRange(e) { const en = evEnd(e); return en !== e.start ? `${md(e.start)}〜${md(en)}` : md(e.start); }
 function fyOf(s) { const [y, m] = s.split('-').map(Number); return m >= 4 ? y : y - 1; }
 function qOf(s) { const m = Number(s.split('-')[1]); return m >= 4 && m <= 6 ? 1 : m >= 7 && m <= 9 ? 2 : m >= 10 ? 3 : 4; }
@@ -425,7 +435,8 @@ async function demoApi(req) {
       const u = db.users.find(x => x.email === email);
       if (!u || await hash(String(req.password || ''), u.salt) !== u.hash) return ng('メールアドレスまたはパスワードが違います');
       u.lastLogin = now; const token = newSession(u.id); save();
-      return { ok: true, token, user: pub(u) };
+      const docs = {}; Object.entries(db.data).forEach(([k, r]) => { if (!r.deleted) docs[k] = r.value; });
+      return { ok: true, token, user: pub(u), docs, version: db.ver };
     }
   }
   const s = db.sessions.find(x => x.token === req.token);
@@ -453,7 +464,7 @@ async function demoApi(req) {
         if (req.action === 'load' && r.deleted) return;
         docs[k] = r.deleted ? null : r.value;
       });
-      return { ok: true, docs, version: db.ver };
+      return { ok: true, docs, version: db.ver, user: pub(me) };
     }
     case 'put': db.ver++; db.data[req.key] = { value: req.value, updatedAt: db.ver, deleted: false }; save(); return { ok: true, version: db.ver };
     case 'remove': db.ver++; db.data[req.key] = { value: null, updatedAt: db.ver, deleted: true }; save(); return { ok: true, version: db.ver };
@@ -558,7 +569,7 @@ function costRows(range, sid) {
     if (sid !== 'all' && !participants(e).includes(sid)) return;
     const r = ratio(e, sid);
     (e.expenses || []).forEach(x => {
-      const d = x.date || e.start;
+      const d = e.start; // イベントの費用は開催月に入れる
       if (d && d >= range[0] && d <= range[1]) rows.push({ kind: 'event', e, x, date: d, full: num(x.amount), amt: num(x.amount) * r, by: x.by || '' });
     });
   });
@@ -569,9 +580,45 @@ function costRows(range, sid) {
 // ---------------------------------------------------------------- 読み込み・保存
 async function loadAll() {
   const r = await api('load');
-  docs = r.docs || {};
+  applyLoaded(r);
+}
+function applyLoaded(r) {
+  const next = r.docs || {};
+  writingKeys.forEach(k => { if (k in docs) next[k] = docs[k]; else delete next[k]; }); // 保存中のものは手元を優先
+  docs = next;
   version = r.version || 0;
+  if (r.user) session.user = r.user;
   lastSync = new Date();
+  cacheSave();
+}
+
+// ---------------------------------------------------------------- 前回の内容をブラウザに覚えておき、次に開いたときすぐ表示する
+const CACHE_KEY = 'evt-cache';
+let cacheTimer = null, refreshing = false;
+function cacheSave() {
+  clearTimeout(cacheTimer);
+  cacheTimer = setTimeout(() => {
+    if (session.user && session.token) lsSet(CACHE_KEY, JSON.stringify({ token: session.token, user: session.user, docs, version }));
+  }, 500);
+}
+function cacheLoad() {
+  const c = lsJSON(CACHE_KEY, null);
+  return c && c.docs && c.user && c.token === session.token ? c : null;
+}
+/** 覚えていた内容で表示したあと、裏で最新の内容を読み込む */
+async function refreshInBackground() {
+  refreshing = true; polling = true; renderSyncInfo();
+  const before = JSON.stringify(session.user);
+  try {
+    await loadAll();
+    if (!session.user) return;
+    if (JSON.stringify(session.user) !== before) { $('root').innerHTML = shellHtml(); render(); }
+    else softRender();
+  } catch (e) {
+    if (e.code !== 'AUTH' && e.code !== 'MUST_CHANGE') toast('最新の内容を読み込めませんでした:' + e.message, { err: true });
+  } finally {
+    refreshing = false; polling = false; renderSyncInfo();
+  }
 }
 
 async function saveDoc(key, value, msg) {
@@ -589,6 +636,7 @@ async function write(key, fn, msg) {
   try {
     await fn();
     if (msg) toast(msg);
+    cacheSave();
     syncState = '';
   } catch (e) {
     syncState = 'error';
@@ -620,7 +668,9 @@ async function poll(manual) {
       if (v === null) delete docs[k]; else docs[k] = v;
     });
     version = Math.max(version, r.version || 0);
+    if (r.user) session.user = r.user;
     lastSync = new Date();
+    cacheSave();
     if (state.tab === 'accounts' && manual) loadUsers();
     if (changed) softRender(); else renderSyncInfo();
     if (manual) toast(changed ? '最新の内容に更新しました' : '最新の状態です');
@@ -700,6 +750,7 @@ function renderSyncInfo() {
   el.classList.toggle('err', syncState === 'error');
   if (syncState === 'saving' || pendingWrites) el.textContent = '保存中…';
   else if (syncState === 'error') el.textContent = '保存できなかった変更があります';
+  else if (refreshing) el.textContent = '最新の内容を確認中…';
   else el.textContent = lastSync ? `最終更新 ${pad(lastSync.getHours())}:${pad(lastSync.getMinutes())}` + (pendingRender ? '(新しい変更あり)' : '') : '';
 }
 
@@ -992,11 +1043,12 @@ function viewPlan() {
   </div>`;
 }
 
-// ---------------------------------------------------------------- 使用実績入力(各店の事務向け)
+// ---------------------------------------------------------------- 実績入力(各店の事務向け:来場実績と費用)
 function viewActual() {
   if (state.uStore && !storeById(state.uStore)) state.uStore = '';
   const sid = state.uStore;
   const [y, m] = state.uYm.split('-').map(Number);
+  const td = today();
   const head = `
   <div class="view-head">
     <label class="store-pick"><span>店舗</span>${storeSelect('u-store', 'u-store', sid, false, '店舗を選んでください')}</label>
@@ -1006,12 +1058,33 @@ function viewActual() {
       <button data-act="u-month-step" data-v="1" aria-label="次の月">›</button>
       <button class="small" data-act="u-month-today">今月</button>
     </div>
-    <div class="grow"></div>
-    ${sid ? '<button class="primary big" data-act="cost-new">＋ 費用を入力</button>' : ''}
   </div>`;
   if (!sid) return head + `<div class="panel empty">はじめに、上の「店舗」であなたの店舗を選んでください。<br><span class="small-text">選んだ店舗はこのパソコン(ブラウザ)に記憶され、次回からは自動で表示されます。</span></div>`;
 
   const range = monthBounds(y, m);
+  const mine = evList().filter(e => e.start && participants(e).includes(sid));
+  const evs = mine.filter(e => e.start <= range[1] && evEnd(e) >= range[0]);
+  // 月に関係なく、終わったのに実績が入っていないイベント(直近4か月)
+  const pending = mine.filter(e => e.start <= td && !hasResult(e) && e.start >= addDays(td, -120));
+  const resultBtn = (e, cls) => e.start > td ? '<span class="muted small-text">開催後に入力</span>'
+    : hasResult(e) ? `<button class="small" data-act="result-event" data-id="${e.id}">直す</button>`
+      : `<button class="primary small ${cls || ''}" data-act="result-event" data-id="${e.id}">${category(e) === 'visit' ? '来場実績' : '実績'}を入力</button>`;
+  const evCell = e => `<span class="typetag ${typeClass(e)}"></span>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}${isSingle(e) ? '' : ' / ' + esc(storeLabel(e))}</span>`;
+
+  const pendingHtml = pending.length ? `<div class="panel todo-panel">
+    <h3>来場実績がまだ入っていないイベント(${pending.length}件)</h3>
+    <div class="table-wrap"><table>
+      ${pending.map(e => `<tr><td class="nowrap">${dateRange(e)}</td><td>${evCell(e)}</td>
+        <td class="nowrap right">${resultBtn(e)}</td></tr>`).join('')}
+    </table></div></div>` : '';
+
+  const resultTable = evs.length ? `<div class="table-wrap"><table>
+      <tr><th>日付</th><th>イベント</th><th>状態</th><th>実績</th><th></th></tr>
+      ${evs.map(e => `<tr>
+        <td class="nowrap">${dateRange(e)}</td><td>${evCell(e)}</td><td>${resultBadge(e)}</td>
+        <td class="small-text">${resultSummary(e)}</td><td class="nowrap right">${resultBtn(e)}</td></tr>`).join('')}
+    </table></div>` : '<div class="muted small-text">この月にこの店舗のイベントはありません</div>';
+
   const rows = costRows(range, sid);
   const evAmt = sum(rows.filter(r => r.kind === 'event'), r => r.amt);
   const otAmt = sum(rows.filter(r => r.kind === 'other'), r => r.amt);
@@ -1019,12 +1092,11 @@ function viewActual() {
   const fy = fyOf(range[0]), q = qOf(range[0]), qr = quarterRange(fy, q);
   const qBudget = num((getDoc(`plans/${fy}-q${q}-${sid}`) || {}).budget);
   const qUsed = sum(eventsIn(qr, sid), e => usedShare(e, sid)) + sum(othersIn(qr, sid), c => num(c.amount));
-  const evs = evList().filter(e => e.start && e.start <= range[1] && evEnd(e) >= range[0] && participants(e).includes(sid));
 
   const list = rows.length ? `<div class="table-wrap"><table>
-      <tr><th>日付</th><th>何の費用</th><th>項目</th><th>内容</th><th class="num">金額</th><th>入力者</th><th></th></tr>
+      <tr><th>時期</th><th>何の費用</th><th>項目</th><th>内容</th><th class="num">金額</th><th>入力者</th><th></th></tr>
       ${rows.map(r => `<tr class="clickable" data-act="cost-edit" data-kind="${r.kind}" data-id="${r.e ? r.e.id : ''}" data-x="${r.x.id}">
-        <td class="nowrap">${md(r.date)}</td>
+        <td class="nowrap">${r.e ? dateRange(r.e) : `${Number(r.date.slice(5, 7))}月分`}</td>
         <td>${r.e ? `<span class="typetag ${typeClass(r.e)}"></span>${esc(r.e.name)}${isSingle(r.e) ? '' : `<br><span class="muted small-text">${esc(storeLabel(r.e))}</span>`}` : '<span class="badge gray">イベント以外</span>'}</td>
         <td class="nowrap">${esc(costName(r.x.costItemId))}</td><td>${esc(r.x.desc || '')}</td>
         <td class="num">${yen(r.full)}${Math.round(r.amt) !== Math.round(r.full) ? `<br><span class="muted small-text">この店舗分 ${yen(r.amt)}</span>` : ''}</td>
@@ -1032,40 +1104,53 @@ function viewActual() {
         <td class="nowrap"><button class="link small">編集</button></td></tr>`).join('')}
       <tr class="total"><td colspan="4">この店舗の合計</td><td class="num">${yen(evAmt + otAmt)}</td><td colspan="2"></td></tr>
     </table></div>
-    <p class="muted small-text">行をクリックすると、直したり削除したりできます。合同・全店共通イベントの費用は、各店舗に割り振った予算の比率で按分した「この店舗分」を合計しています。</p>`
-    : `<div class="empty">${y}年${m}月の費用はまだ入力されていません。<br><button class="primary" style="margin-top:10px" data-act="cost-new">＋ 費用を入力</button></div>`;
+    <p class="muted small-text">行をクリックすると、直したり削除したりできます。イベントの費用は開催月に入ります。合同・全店共通イベントの費用は、各店舗に割り振った予算の比率で按分した「この店舗分」を合計しています。</p>`
+    : `<div class="empty">${m}月の費用はまだ入力されていません。</div>`;
 
   const evTable = evs.length ? `<div class="table-wrap"><table>
       <tr><th>日付</th><th>イベント</th><th>区分</th><th class="num">予算(この店舗分)</th><th class="num">使用金額(この店舗分)</th><th class="num">残り</th><th></th></tr>
       ${evs.map(e => {
         const b = shareOf(e, sid), u = usedShare(e, sid);
         return `<tr class="${u > b ? 'over' : ''}">
-          <td class="nowrap">${dateRange(e)}</td><td><span class="typetag ${typeClass(e)}"></span>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}</span></td>
+          <td class="nowrap">${dateRange(e)}</td><td>${evCell(e)}</td>
           <td class="nowrap">${isSingle(e) ? '単独' : isAll(e) ? '全店共通' : '合同'}</td>
           <td class="num">${yen(b)}</td><td class="num">${yen(u)}</td><td class="num ${b - u < 0 ? 'red' : ''}">${yen(b - u)}</td>
           <td class="nowrap"><button class="small" data-act="cost-new" data-ev="${e.id}">＋ 費用</button></td></tr>`;
       }).join('')}
-    </table></div><p class="muted small-text">使用金額は、そのイベントに入力された費用の累計です(費用の日付が別の月でも含みます)。</p>`
+    </table></div>`
     : '<div class="muted small-text">この月にこの店舗のイベントはありません</div>';
 
   return head + `
-  <div class="steps small-text"><b>入力のしかた</b>
-    <span>① 店舗と月を確認</span><span>② 「＋ 費用を入力」</span><span>③ 「イベントの費用」か「イベント以外の費用」を選ぶ</span><span>④ 日付・項目・金額を入れて保存</span></div>
-  <div class="cards">
-    <div class="card"><div class="lbl">${m}月の費用合計</div><div class="val">${yen(evAmt + otAmt)}</div></div>
-    <div class="card"><div class="lbl">うち イベントの費用</div><div class="val">${yen(evAmt)}</div></div>
-    <div class="card"><div class="lbl">うち イベント以外の費用</div><div class="val">${yen(otAmt)}</div></div>
-    <div class="card"><div class="lbl">${Q_LABEL[q]}の予算の残り</div><div class="val ${qBudget && qBudget - qUsed < 0 ? 'neg' : ''}">${qBudget ? yen(qBudget - qUsed) : '<span class="muted" style="font-size:14px;font-weight:400">予算未設定</span>'}</div>
-      ${qBudget ? `<div class="muted small-text">予算 ${yen(qBudget)} / 使用 ${yen(qUsed)}</div>` : ''}</div>
+  <div class="steps small-text"><b>この画面でやること</b>
+    <span>① 終わったイベントの「来場実績を入力」</span><span>② かかった費用を「＋ 費用を入力」</span></div>
+  ${pendingHtml}
+  <div class="panel">
+    <h3><span class="num-badge">1</span>イベントの来場実績(${m}月)</h3>
+    ${resultTable}
   </div>
   <div class="panel">
-    <h3>${esc(storeName(sid))} の費用一覧(${y}年${m}月)</h3>
+    <div class="view-head" style="margin-bottom:10px"><h3 style="margin:0"><span class="num-badge">2</span>${esc(storeName(sid))} の費用(${m}月)</h3><div class="grow"></div>
+      <button class="primary big" data-act="cost-new">＋ 費用を入力</button></div>
+    <div class="cards">
+      <div class="card"><div class="lbl">${m}月の費用合計</div><div class="val">${yen(evAmt + otAmt)}</div></div>
+      <div class="card"><div class="lbl">うち イベントの費用</div><div class="val">${yen(evAmt)}</div></div>
+      <div class="card"><div class="lbl">うち イベント以外の費用</div><div class="val">${yen(otAmt)}</div></div>
+      <div class="card"><div class="lbl">${Q_LABEL[q]}の予算の残り</div><div class="val ${qBudget && qBudget - qUsed < 0 ? 'neg' : ''}">${qBudget ? yen(qBudget - qUsed) : '<span class="muted" style="font-size:14px;font-weight:400">予算未設定</span>'}</div>
+        ${qBudget ? `<div class="muted small-text">予算 ${yen(qBudget)} / 使用 ${yen(qUsed)}</div>` : ''}</div>
+    </div>
     ${list}
   </div>
   <div class="panel">
-    <h3>この月のイベントと予算</h3>
+    <h3>イベントごとの予算と使用金額(${m}月)</h3>
     ${evTable}
   </div>`;
+}
+function resultSummary(e) {
+  if (!hasResult(e)) return '';
+  const r = e.result;
+  return category(e) === 'visit'
+    ? `来場 <b>${num(r.visits)}</b>組(新規 ${num(r.newVisits)})/ 次回アポ <b>${num(r.appts)}</b>`
+    : `名簿 <b>${num(r.leads)}</b>件 / アポ <b>${num(r.appts)}</b>`;
 }
 
 // ---------------------------------------------------------------- 予算管理
@@ -1130,9 +1215,9 @@ function viewBudget() {
     <div class="view-head" style="margin-bottom:8px"><h3 style="margin:0">イベント以外の費用</h3><div class="grow"></div>
       <button class="small" data-act="cost-new" data-target="other" data-store="${sid === 'all' ? '' : sid}">＋ 追加</button></div>
     ${others.length ? `<div class="table-wrap"><table>
-      <tr><th>日付</th><th>店舗</th><th>項目</th><th>内容</th><th class="num">金額</th><th>入力者</th></tr>
+      <tr><th>月</th><th>店舗</th><th>項目</th><th>内容</th><th class="num">金額</th><th>入力者</th></tr>
       ${others.map(c => `<tr class="clickable" data-act="cost-edit" data-kind="other" data-x="${c.id}">
-        <td class="nowrap">${ymd(c.date)}</td><td>${esc(storeName(c.storeId))}</td><td>${esc(costName(c.costItemId))}</td>
+        <td class="nowrap">${monthLabel(c.date)}</td><td>${esc(storeName(c.storeId))}</td><td>${esc(costName(c.costItemId))}</td>
         <td>${esc(c.desc || '')}</td><td class="num">${yen(num(c.amount))}</td><td class="small-text muted">${esc(c.updatedBy || c.createdBy || '')}</td></tr>`).join('')}
       <tr class="total"><td colspan="4">合計</td><td class="num">${yen(to)}</td><td></td></tr>
     </table></div>` : '<div class="muted small-text">この期間のイベント以外の費用はありません</div>'}
@@ -1155,9 +1240,8 @@ function expenseEditor(e) {
   return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">${budgetPart}
     <div class="grow"></div><button class="small" data-act="edit-event" data-id="${e.id}">イベントを編集</button></div>
     <table class="exp">
-      <tr><th style="width:140px">日付</th><th style="width:170px">項目</th><th>内容</th><th style="width:130px" class="num">金額</th><th style="width:56px"></th></tr>
+      <tr><th style="width:170px">項目</th><th>内容</th><th style="width:130px" class="num">金額</th><th style="width:56px"></th></tr>
       ${xs.map(x => `<tr>
-        <td><input type="date" id="ex-${e.id}-${x.id}-date" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="date" value="${esc(x.date || '')}"></td>
         <td><select id="ex-${e.id}-${x.id}-item" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="costItemId">
           ${costItems().map(c => `<option value="${c.id}" ${c.id === x.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
           ${x.costItemId && !costItems().some(c => c.id === x.costItemId) ? `<option value="${esc(x.costItemId)}" selected>(削除された項目)</option>` : ''}</select></td>
@@ -1402,15 +1486,23 @@ function openResultModal(id) {
 }
 MODALS.result = m => {
   const e = getEvent(m.id); const r = m.draft;
-  const n = (id, label, v) => `<label><span>${label}</span><input type="number" min="0" id="${id}" value="${v == null || v === '' ? '' : num(v)}" placeholder="0"></label>`;
-  const fields = category(e) === 'visit'
-    ? `<div class="grid2" style="grid-template-columns:1fr 1fr 1fr">${n('rs-visits', '来場組数', r.visits)}${n('rs-new', 'うち新規', r.newVisits)}${n('rs-appts', '次回アポ', r.appts)}</div>`
-    : `<div class="grid2">${n('rs-leads', '名簿獲得数', r.leads)}${n('rs-appts', 'アポ数', r.appts)}</div>`;
-  return `<h2>成果を入力</h2>
-    <p class="muted" style="margin-top:-6px">${esc(e.name)} / ${dateRange(e)} / ${esc(storeLabel(e))}<br>${esc(e.type)}(${category(e) === 'visit' ? '来場型' : '出展型'})</p>
+  const visit = category(e) === 'visit';
+  const n = (id, label, unit, hint, v) => `<label class="rs-num"><span>${label}</span>
+    <div class="rs-in"><input type="number" min="0" inputmode="numeric" id="${id}" value="${v == null || v === '' ? '' : num(v)}" placeholder="0"><em>${unit}</em></div>
+    <small>${hint}</small></label>`;
+  const fields = visit
+    ? `<div class="rs-grid">${n('rs-visits', '来場組数', '組', 'ご来場いただいた組数(家族連れも1組)', r.visits)}
+        ${n('rs-new', 'うち新規', '組', '初めて来られた組数', r.newVisits)}
+        ${n('rs-appts', '次回アポ', '組', '次の打ち合わせ等の約束が取れた組数', r.appts)}</div>`
+    : `<div class="rs-grid">${n('rs-leads', '名簿獲得数', '件', 'アンケート等でお名前・連絡先をいただいた件数', r.leads)}
+        ${n('rs-appts', 'アポ数', '件', '来場・打ち合わせの約束が取れた件数', r.appts)}</div>`;
+  return `<h2>${visit ? '来場実績を入力' : '出展の実績を入力'}</h2>
+    <div class="rs-ev"><span class="typetag ${typeClass(e)}"></span><b>${esc(e.name)}</b><br>
+      <span class="muted small-text">${dateRange(e)} / ${esc(storeLabel(e))} / ${esc(e.type)}</span></div>
+    ${isSingle(e) ? '' : '<div class="note">合同・全店共通のイベントです。<b>イベント全体の数</b>を入れてください(どこか1店舗がまとめて入力します)。</div>'}
     ${fields}
-    <label><span>良かった点</span><textarea id="rs-good">${esc(r.good || '')}</textarea></label>
-    <label><span>改善点</span><textarea id="rs-improve">${esc(r.improve || '')}</textarea></label>
+    <label><span>良かった点(任意)</span><textarea id="rs-good" placeholder="例:若いご夫婦の来場が多かった">${esc(r.good || '')}</textarea></label>
+    <label><span>改善点(任意)</span><textarea id="rs-improve" placeholder="例:告知の開始が遅かった">${esc(r.improve || '')}</textarea></label>
     ${r.enteredBy ? `<p class="muted small-text">最終入力:${esc(r.enteredBy)} ${fmtDT(r.enteredAt)}</p>` : ''}
     <div class="err"></div>
     <div class="foot"><div class="grow"></div><button data-act="modal-close">キャンセル</button><button class="primary" data-act="rs-save">保存</button></div>`;
@@ -1464,14 +1556,14 @@ MODALS.itemDetail = m => {
   const rows = [];
   eventsIn(periodRange(), sid).forEach(e => {
     const r = ratio(e, sid);
-    (e.expenses || []).filter(x => (x.costItemId || '') === m.item).forEach(x => rows.push({ e, x, d: x.date || e.start, amt: num(x.amount) * r }));
+    (e.expenses || []).filter(x => (x.costItemId || '') === m.item).forEach(x => rows.push({ e, x, d: e.start, amt: num(x.amount) * r }));
   });
   othersIn(periodRange(), sid).filter(c => (c.costItemId || '') === m.item).forEach(c => rows.push({ e: null, x: c, d: c.date, amt: num(c.amount) }));
   rows.sort((a, b) => a.d.localeCompare(b.d));
   return `<h2>${esc(m.item ? costName(m.item) : '(項目なし)')} の明細</h2>
     <div class="table-wrap"><table>
       <tr><th>いつ</th><th>どのイベントで</th><th>何に</th><th class="num">いくら</th></tr>
-      ${rows.map(r => `<tr><td class="nowrap">${r.x.date ? ymd(r.x.date) : dateRange(r.e)}</td>
+      ${rows.map(r => `<tr><td class="nowrap">${r.e ? dateRange(r.e) : monthLabel(r.x.date)}</td>
         <td>${r.e ? `${esc(r.e.name)}<br><span class="muted small-text">${esc(storeLabel(r.e))}</span>` : `<span class="badge gray">イベント以外</span><br><span class="muted small-text">${esc(storeName(r.x.storeId))}</span>`}</td>
         <td>${esc(r.x.desc || '')}</td><td class="num">${yen(r.amt)}${r.e && sid !== 'all' && !isSingle(r.e) ? `<br><span class="muted small-text">全体 ${yen(num(r.x.amount))}</span>` : ''}</td></tr>`).join('')}
       <tr class="total"><td colspan="3">合計</td><td class="num">${yen(sum(rows, r => r.amt))}</td></tr>
@@ -1483,14 +1575,10 @@ MODALS.itemDetail = m => {
 /** opt: { target:'event'|'other'|'', eventId, storeId, x(編集する明細) } */
 function openCostModal(opt) {
   const x = opt.x || null;
-  let date = x ? x.date : '';
-  if (!date) {
-    const ev = opt.eventId && getEvent(opt.eventId);
-    const ym = state.tab === 'actual' ? state.uYm : today().slice(0, 7);
-    date = today().startsWith(ym) ? today() : ev && ev.start.startsWith(ym) ? ev.start : ym + '-01';
-  }
+  // イベント以外の費用は「何月分」で持つ(date は その月の1日)
+  const month = x && x.date ? x.date.slice(0, 7) : state.tab === 'actual' ? state.uYm : today().slice(0, 7);
   const draft = {
-    target: opt.target || '', eventId: opt.eventId || '', storeId: opt.storeId || '', date,
+    target: opt.target || '', eventId: opt.eventId || '', storeId: opt.storeId || '', month,
     costItemId: x ? x.costItemId : '', desc: x ? x.desc || '' : '', amount: x ? num(x.amount) : ''
   };
   const orig = x ? { target: opt.target, eventId: opt.eventId || '', id: x.id } : null;
@@ -1511,10 +1599,8 @@ MODALS.expense = m => {
   const fields = !d.target ? '<p class="muted small-text">上のどちらかを選ぶと、入力欄が出てきます。</p>' : `
     ${d.target === 'event' ? `<label><span>どのイベントの費用ですか? *</span><select id="cx-event" data-act="cx-event">${costEventOptions(d.storeId, d.eventId)}</select></label>
       ${ev && !isSingle(ev) ? '<div class="note">合同・全店共通のイベントです。<b>イベント全体でかかった金額</b>を入れてください。各店舗に割り振った予算の比率で自動的に按分されます(同じ費用を店舗ごとに重ねて入れないでください)。</div>' : ''}` : ''}
-    <div class="grid2">
-      <label><span>日付 *(支払日・請求日など)</span><input type="date" id="cx-date" value="${esc(d.date)}"></label>
-      <label><span>金額(円) *</span><input type="number" id="cx-amount" min="0" step="1" inputmode="numeric" value="${d.amount === '' ? '' : num(d.amount)}" placeholder="例:55000"></label>
-    </div>
+    ${d.target === 'other' ? `<label><span>何月分の費用ですか? *</span><input type="month" id="cx-month" value="${esc(d.month)}" style="max-width:220px"></label>` : ''}
+    <label><span>金額(円) *</span><input type="number" id="cx-amount" min="0" step="1" inputmode="numeric" value="${d.amount === '' ? '' : num(d.amount)}" placeholder="例:55000" style="max-width:220px"></label>
     <label><span>項目 *</span><select id="cx-item"><option value="" ${d.costItemId ? '' : 'selected'}>選んでください</option>
       ${costItems().map(c => `<option value="${c.id}" ${c.id === d.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
       ${d.costItemId && !costItems().some(c => c.id === d.costItemId) ? `<option value="${esc(d.costItemId)}" selected>(削除された項目)</option>` : ''}</select></label>
@@ -1544,7 +1630,7 @@ function readCostForm(m) {
   const d = m.draft;
   if ($('cx-store')) d.storeId = $('cx-store').value;
   if ($('cx-event')) d.eventId = $('cx-event').value;
-  if ($('cx-date')) d.date = $('cx-date').value;
+  if ($('cx-month')) d.month = $('cx-month').value;
   if ($('cx-amount')) d.amount = $('cx-amount').value;
   if ($('cx-item')) d.costItemId = $('cx-item').value;
   if ($('cx-desc')) d.desc = $('cx-desc').value;
@@ -1717,7 +1803,7 @@ C['alloc-event'] = el => {
 C['toggle-exp'] = el => go(() => { state.open[el.dataset.id] = !state.open[el.dataset.id]; });
 C['exp-add'] = el => {
   const e = clone(getEvent(el.dataset.id)); if (!e) return;
-  e.expenses = (e.expenses || []).concat({ id: uid(), date: e.start, costItemId: (costItems()[0] || {}).id || '', desc: '', amount: 0 });
+  e.expenses = (e.expenses || []).concat({ id: uid(), costItemId: (costItems()[0] || {}).id || '', desc: '', amount: 0 });
   saveDoc('events/' + e.id, e);
 };
 CH['exp-field'] = el => {
@@ -1734,7 +1820,7 @@ C['exp-del'] = el => {
 C['cost-master'] = () => openModal({ kind: 'cost', draft: clone(costItems()), confirm: null });
 C['item-detail'] = el => openModal({ kind: 'itemDetail', wide: true, item: el.dataset.v });
 
-// 使用実績入力
+// 実績入力
 CH['u-store'] = el => go(() => { state.uStore = el.value; });
 C['u-month-step'] = el => go(() => {
   const [y, m] = state.uYm.split('-').map(Number);
@@ -1778,13 +1864,13 @@ C['cx-save'] = () => {
   const d = m.draft;
   if (!d.storeId && d.target === 'other') return modalErr('店舗を選んでください');
   if (d.target === 'event' && !getEvent(d.eventId)) return modalErr('どのイベントの費用かを選んでください');
-  if (!d.date) return modalErr('日付を入れてください');
+  if (d.target === 'other' && !/^\d{4}-\d{2}$/.test(d.month || '')) return modalErr('何月分の費用かを入れてください');
   if (!(num(d.amount) > 0)) return modalErr('金額を入れてください');
   if (!d.costItemId) return modalErr('項目を選んでください');
   const by = session.user.name, at = new Date().toISOString();
   const o = m.orig;
   const id = o ? o.id : uid();
-  const rec = { id, date: d.date, costItemId: d.costItemId, desc: d.desc.trim(), amount: num(d.amount) };
+  const rec = { id, costItemId: d.costItemId, desc: d.desc.trim(), amount: num(d.amount) };
   closeModal();
   // 「何の費用か」を変えたときは、元の場所から移す
   if (o && !(o.target === d.target && (d.target === 'other' || o.eventId === d.eventId))) removeCostAt(o);
@@ -1794,12 +1880,13 @@ C['cx-save'] = () => {
     const list = e.expenses || [];
     const i = list.findIndex(r => r.id === id);
     const row = Object.assign({}, i >= 0 ? list[i] : {}, rec, { storeId: d.storeId, by, at });
+    delete row.date; // イベントの費用は開催月に入れるので日付は持たない
     if (i >= 0) list[i] = row; else list.push(row);
     e.expenses = list;
     saveDoc('events/' + e.id, e, msg);
   } else {
     const prev = getDoc('costs/' + id) || {};
-    saveDoc('costs/' + id, Object.assign({}, prev, rec, {
+    saveDoc('costs/' + id, Object.assign({}, prev, rec, { date: d.month + '-01',
       storeId: d.storeId, createdBy: prev.createdBy || by, createdAt: prev.createdAt || at, updatedBy: by, updatedAt: at
     }), msg);
   }
@@ -2057,7 +2144,8 @@ document.addEventListener('submit', async ev => {
     session.token = r.token; session.user = r.user;
     lsSet('evt-token', r.token);
     if (r.user.mustChange) return showAuth('change');
-    await startApp();
+    if (r.docs) { applyLoaded(r); await startApp('ready'); } // ログインと同時にデータも受け取る
+    else await startApp();
     if (form.dataset.form === 'register' && r.user.requestedRole === 'admin') toast('登録しました。管理者の承認待ちです(承認までは店長として使えます)');
   } catch (e) {
     if (e.code !== 'MUST_CHANGE') err.textContent = e.message;
@@ -2069,36 +2157,47 @@ function forceLogout(msg) {
   session.token = null; session.user = null;
   lsSet('evt-token', null);
   docs = {}; version = 0; state.users = null;
+  lsSet(CACHE_KEY, null);
   showAuth('login');
   if (msg) toast(msg, { err: true });
 }
 
 // ====================================================================== 起動
-async function startApp() {
-  $('root').innerHTML = '<div class="auth"><div class="panel empty">読み込み中…</div></div>';
-  try {
-    await loadAll();
-  } catch (e) {
-    if (e.code === 'AUTH' || e.code === 'MUST_CHANGE') return;
-    $('root').innerHTML = `<div class="auth"><div class="panel"><h1>読み込めませんでした</h1><p class="red">${esc(e.message)}</p><button class="primary" onclick="location.reload()">もう一度読み込む</button></div></div>`;
-    return;
+/** mode: 'cache' = 覚えていた内容ですぐ表示して裏で更新 / 'ready' = 読み込み済み / なし = ここで読み込む */
+async function startApp(mode) {
+  if (!mode) {
+    $('root').innerHTML = '<div class="auth"><div class="panel empty">読み込み中…</div></div>';
+    try {
+      await loadAll();
+    } catch (e) {
+      if (e.code === 'AUTH' || e.code === 'MUST_CHANGE') return;
+      $('root').innerHTML = `<div class="auth"><div class="panel"><h1>読み込めませんでした</h1><p class="red">${esc(e.message)}</p><button class="primary" onclick="location.reload()">もう一度読み込む</button></div></div>`;
+      return;
+    }
   }
   $('root').innerHTML = shellHtml();
   render();
+  if (mode === 'cache') refreshInBackground();
 }
 (async function boot() {
   if (session.token) {
+    const c = cacheLoad();
+    if (c && !c.user.mustChange) {
+      session.user = c.user; docs = c.docs; version = c.version || 0;
+      return startApp('cache');
+    }
+    $('root').innerHTML = '<div class="auth"><div class="panel empty">読み込み中…</div></div>';
     try {
-      const r = await api('me');
-      session.user = r.user;
+      await loadAll(); // ログイン中の人の情報もいっしょに返ってくる
+      if (!session.user) session.user = (await api('me')).user;
     } catch (e) {
-      if (e.code === 'AUTH') return;
-      if (e.code !== 'MUST_CHANGE') { session.token = null; lsSet('evt-token', null); }
+      if (e.code === 'AUTH' || e.code === 'MUST_CHANGE') return;
+      session.token = null; session.user = null; lsSet('evt-token', null);
     }
   }
   if (!session.user) return showAuth('login');
   if (session.user.mustChange) return showAuth('change');
-  startApp();
+  startApp('ready');
 })();
 </script>
 </body>
