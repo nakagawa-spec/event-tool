@@ -708,8 +708,20 @@ function storesOrdered() {
 /** 四半期計画で合算して見る店舗のまとまり */
 const PLAN_GROUPS = [{ id: 'grp_barazono', name: 'バラ園＋バラ園２', stores: ['st_barazono', 'st_barazono2'] }];
 function planGroup(id) { const g = PLAN_GROUPS.find(x => x.id === id); return g && g.stores.every(storeById) ? g : null; }
+function blockById(id) { return blocks().find(b => b.id === id); }
+/** 複数店舗をまとめた選択(合算・ブロック)か */
+function isScope(v) { return v !== 'all' && !storeById(v) && !!(planGroup(v) || blockById(v)); }
+function validScope(v) { return !!(storeById(v) || planGroup(v) || blockById(v)); }
+/** 選択に含まれる店舗(合算・ブロックは店舗の積み上げ) */
+function scopeIds(v) {
+  if (v === 'all') return stores().map(s => s.id);
+  const g = planGroup(v); if (g) return g.stores.slice();
+  if (blockById(v)) return stores().filter(s => s.blockId === v).map(s => s.id);
+  return [v];
+}
+function inScope(e, sid) { return sid === 'all' || scopeIds(sid).some(id => participants(e).includes(id)); }
 function storeById(id) { return stores().find(s => s.id === id); }
-function storeName(id) { if (id === 'all') return '全店共通'; if (String(id).startsWith('co:')) return String(id).slice(3); const s = storeById(id); return s ? s.name : '(削除された店舗)'; }
+function storeName(id) { if (id === 'all') return '全店共通'; if (planGroup(id)) return planGroup(id).name; if (blockById(id)) return blockById(id).name; if (String(id).startsWith('co:')) return String(id).slice(3); const s = storeById(id); return s ? s.name : '(削除された店舗)'; }
 function costItems() { const d = getDoc('config/costItems'); return d && Array.isArray(d.items) ? d.items : DEFAULT_COST_ITEMS.items; }
 const OLD_COST_ITEMS = { ci_paper: '新聞折込' }; // 選べなくなった項目(以前の入力の表示用)
 function costName(id) { const c = costItems().find(x => x.id === id); return c ? c.name : OLD_COST_ITEMS[id] || '(削除された項目)'; }
@@ -736,6 +748,7 @@ function storeLabel(e) {
 function allocTotal(e) { return sum(e.allocations || [], a => sum(Object.values(a.amounts || {}), num)); }
 function budgetOf(e) { return isSingle(e) ? num(e.budget) : allocTotal(e); }
 function shareOf(e, sid) {
+  if (isScope(sid)) return sum(scopeIds(sid), id => shareOf(e, id));
   if (isSingle(e)) return e.stores[0] === sid ? num(e.budget) : 0;
   return sum(e.allocations || [], a => num((a.amounts || {})[sid]));
 }
@@ -748,6 +761,7 @@ function usedOf(e) { return sum(e.expenses || [], x => num(x.amount)); }
 function expShare(e, x, sid) {
   const a = num(x.amount);
   if (sid === 'all') return a;
+  if (isScope(sid)) return sum(scopeIds(sid), id => expShare(e, x, id));
   if (isSingle(e)) return e.stores[0] === sid ? a : 0;
   const p = participants(e);
   if (!p.includes(sid)) return 0;
@@ -756,11 +770,11 @@ function expShare(e, x, sid) {
   return tot > 0 ? a * shareOf(e, sid) / tot : a / p.length; // 以前の明細
 }
 /** その店舗の明細か(合同イベントで、ほかの店舗が入れた明細は false) */
-function expMine(e, x, sid) { return sid === 'all' || isSingle(e) || !(x.storeId && participants(e).includes(x.storeId)) || x.storeId === sid; }
+function expMine(e, x, sid) { if (isScope(sid)) return scopeIds(sid).some(id => participants(e).includes(id) && expMine(e, x, id)); return sid === 'all' || isSingle(e) || !(x.storeId && participants(e).includes(x.storeId)) || x.storeId === sid; }
 /** 店舗ごとの使用金額 */
 function usedShare(e, sid) { return sum(e.expenses || [], x => expShare(e, x, sid)); }
 /** その店舗の費用が1件でも入っているか */
-function hasCostFor(e, sid) { return (e.expenses || []).some(x => expMine(e, x, sid) && (sid === 'all' || participants(e).includes(sid))); }
+function hasCostFor(e, sid) { if (isScope(sid)) return scopeIds(sid).some(id => hasCostFor(e, id)); return (e.expenses || []).some(x => expMine(e, x, sid) && (sid === 'all' || participants(e).includes(sid))); }
 function todoDone(e, key) {
   if (key === 'result' && allEntered(e)) return true;
   return !!(e.todos && e.todos[key]);
@@ -772,9 +786,10 @@ function storeResult(e, sid) { const r = getDoc(`results/${e.id}~${sid}`); retur
 function resultOf(e, sid) {
   const whole = e.result && e.result.entered ? e.result : null;
   if (!perStore(e)) return whole;
-  if (sid && sid !== 'all') return storeResult(e, sid);
-  const list = participants(e).map(id => storeResult(e, id)).filter(Boolean);
-  if (!list.length) return whole; // 以前のやり方(イベント全体で1つ)で入っていたもの
+  if (sid && sid !== 'all' && !isScope(sid)) return storeResult(e, sid);
+  const ids = sid && sid !== 'all' ? scopeIds(sid).filter(id => participants(e).includes(id)) : participants(e);
+  const list = ids.map(id => storeResult(e, id)).filter(Boolean);
+  if (!list.length) return sid && sid !== 'all' ? null : whole; // 以前のやり方(イベント全体で1つ)で入っていたもの
   const f = k => sum(list, r => num(r[k]));
   return { entered: true, visits: f('visits'), newVisits: f('newVisits'), appts: f('appts'),
     note: list.filter(r => r.note).map(r => `${storeName(r.storeId)}:${r.note}`).join(' / ') };
@@ -799,7 +814,7 @@ function qStat(fy, q, id) {
   return t;
 }
 function cumulative(fy, q, sid) {
-  const ids = sid === 'all' ? stores().map(s => s.id) : Array.isArray(sid) ? sid : [sid];
+  const ids = Array.isArray(sid) ? sid : scopeIds(sid);
   const td = today();
   let budget = 0, actual = 0, planned = 0;
   const quarters = [];
@@ -843,14 +858,15 @@ function cumulativeHtml(c) {
 // イベントに紐付かない費用(costs/{id})
 function costList() { return Object.keys(docs).filter(k => k.startsWith('costs/') && docs[k]).map(k => docs[k]); }
 function othersIn(range, sid) {
-  return costList().filter(c => c.date && c.date >= range[0] && c.date <= range[1] && (sid === 'all' || c.storeId === sid))
+  const ids = sid === 'all' ? null : scopeIds(sid);
+  return costList().filter(c => c.date && c.date >= range[0] && c.date <= range[1] && (!ids || ids.includes(c.storeId)))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 /** 店舗・期間の費用明細(イベントの費用+イベント以外の費用)。amt はその店舗の分 */
 function costRows(range, sid) {
   const rows = [];
   evList().forEach(e => {
-    if (sid !== 'all' && !participants(e).includes(sid)) return;
+    if (!inScope(e, sid)) return;
     (e.expenses || []).forEach(x => {
       const d = e.start; // イベントの費用は開催月に入れる
       if (!expMine(e, x, sid)) return; // ほかの店舗が入れた明細
@@ -1205,7 +1221,7 @@ function calList(y, m) {
   </table></div>`;
 }
 function resultBadge(e, sid) {
-  if (perStore(e) && (!sid || sid === 'all')) {
+  if (perStore(e) && (!sid || sid === 'all' || isScope(sid))) {
     if (allEntered(e)) return '<span class="badge ok">入力済み</span>';
     const n = resultCount(e);
     if (n) return `<span class="badge warn">${n}/${participants(e).length}店 入力</span>`;
@@ -1316,9 +1332,10 @@ function periodRange() {
   if (p.mode === 'quarter') return quarterRange(p.fy, p.q);
   return [`${p.fy}-04-01`, `${p.fy + 1}-03-31`];
 }
-function storeSelect(id, act, sel, withAll, placeholder, groups) {
+function storeSelect(id, act, sel, withAll, placeholder, groups, withBlocks) {
   const gs = groups ? PLAN_GROUPS.filter(g => planGroup(g.id)) : [];
   return `<select id="${id}" data-act="${act}">${withAll ? `<option value="all" ${sel === 'all' ? 'selected' : ''}>全店舗</option>` : ''}
+    ${withBlocks ? `<optgroup label="ブロック(店舗の合計)">${blocks().map(b => `<option value="${b.id}" ${b.id === sel ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</optgroup>` : ''}
     ${gs.length ? `<optgroup label="合算">${gs.map(g => `<option value="${g.id}" ${g.id === sel ? 'selected' : ''}>${esc(g.name)}(合算)</option>`).join('')}</optgroup>` : ''}
     ${placeholder && !sel ? `<option value="" selected>${esc(placeholder)}</option>` : ''}
     ${blocks().map(b => `<optgroup label="${esc(b.name)}">${stores().filter(s => s.blockId === b.id).map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</optgroup>`).join('')}
@@ -1326,7 +1343,7 @@ function storeSelect(id, act, sel, withAll, placeholder, groups) {
   </select>`;
 }
 function eventsIn(range, sid) {
-  return evList().filter(e => e.start && e.start >= range[0] && e.start <= range[1] && (sid === 'all' || participants(e).includes(sid)));
+  return evList().filter(e => e.start && e.start >= range[0] && e.start <= range[1] && inScope(e, sid));
 }
 
 // ---------------------------------------------------------------- 四半期計画
@@ -1517,7 +1534,7 @@ async function exportBudgetExcel() {
     set('B4', `${qn}　広告宣伝費使用額`);
     set('B5', `${qn}　販売促進費使用額`);
     set('B6', `${qn}　残予算額`);
-    const budget = num((getDoc(`plans/${fy}-q${q}-${sid}`) || {}).budget);
+    const budget = sum(scopeIds(sid), id => num((getDoc(`plans/${fy}-q${q}-${id}`) || {}).budget));
     set('E3', budget || null);
     // 部門(広告宣伝費/販促費)はこのツールにないので 0
     set('E4', 0, 'SUMIF($C$9:$C$194,"広告宣伝費",$J$9:$J$194)');
@@ -1525,7 +1542,7 @@ async function exportBudgetExcel() {
     set('E6', budget, 'E3-E4-E5');
 
     const amt = r => Math.round(r.amt);
-    const mine = evList().filter(e => e.start && participants(e).includes(sid) && hasResult(e, sid));
+    const mine = evList().filter(e => e.start && inScope(e, sid) && hasResult(e, sid));
     const tot = { h: 0, j: 0, l: 0, n: 0 };
     [0, 1, 2].forEach(i => {
       const d = fromDS(range[0]); d.setUTCMonth(d.getUTCMonth() + i);
@@ -1600,7 +1617,7 @@ function uHead(extra) {
   const [s, e] = uRange();
   return `
   <div class="view-head">
-    <label class="store-pick"><span>店舗</span>${storeSelect('u-store', 'u-store', sid, false, '店舗を選んでください')}</label>
+    <label class="store-pick"><span>店舗</span>${storeSelect('u-store', 'u-store', sid, false, '店舗を選んでください', true)}</label>
     <div class="month-nav">
       <button data-act="u-q-step" data-v="-1" aria-label="前の四半期">‹</button>
       <strong class="q-label">${kiLabel(state.uFy)} ${Q_LABEL[state.uQ]}</strong>
@@ -1613,7 +1630,7 @@ function uHead(extra) {
   </div>`;
 }
 const U_NO_STORE = `<div class="panel empty">はじめに、上の「店舗」であなたの店舗を選んでください。<br><span class="small-text">選んだ店舗はこのパソコン(ブラウザ)に記憶され、次回からは自動で表示されます。</span></div>`;
-function uCheckStore() { if (state.uStore && !storeById(state.uStore)) state.uStore = ''; return state.uStore; }
+function uCheckStore() { if (state.uStore && !validScope(state.uStore)) state.uStore = ''; return state.uStore; }
 function evCell(e) {
   return `<span class="typetag ${typeClass(e)}"></span>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}${isSingle(e) ? '' : ' / ' + esc(storeLabel(e))}</span>`;
 }
@@ -1627,8 +1644,8 @@ function viewActual() {
   const evAmt = sum(rows.filter(r => r.kind === 'event'), r => r.amt);
   const otAmt = sum(rows.filter(r => r.kind === 'other'), r => r.amt);
   const used = evAmt + otAmt;
-  const budget = num((getDoc(`plans/${state.uFy}-q${state.uQ}-${sid}`) || {}).budget);
-  const evs = evList().filter(e => e.start && e.start >= range[0] && e.start <= range[1] && participants(e).includes(sid));
+  const budget = sum(scopeIds(sid), id => num((getDoc(`plans/${state.uFy}-q${state.uQ}-${id}`) || {}).budget));
+  const evs = eventsIn(range, sid);
 
   // 月ごとに見出し行と小計を入れる
   let body = '', curM = '';
@@ -1693,7 +1710,7 @@ function viewResponse() {
   if (!sid) return head + U_NO_STORE;
   const td = today();
   const range = uRange();
-  const mine = evList().filter(e => e.start && participants(e).includes(sid));
+  const mine = evList().filter(e => e.start && inScope(e, sid));
   const evs = mine.filter(e => e.start >= range[0] && e.start <= range[1]);
   // 四半期に関係なく、終わったのに実績が入っていないイベント(直近4か月)
   const pending = mine.filter(e => e.start <= td && !hasResult(e, sid) && e.start >= addDays(td, -120));
@@ -1778,7 +1795,7 @@ function viewBudget() {
   <div class="view-head">
     ${budgetTabs()}
     ${periodHtml()}
-    ${storeSelect('b-store', 'b-store', sid, true)}
+    ${storeSelect('b-store', 'b-store', sid, true, null, true, true)}
     <div class="grow"></div>
     <button data-act="cost-master">費用項目マスター</button>
   </div>
@@ -1894,11 +1911,14 @@ function viewBudgetChart() {
   const range = [quarterRange(...qs[0])[0], quarterRange(...qs[qs.length - 1])[1]];
   const all = stores().map(x => x.id);
   const total = statOver(all, qs);
-  const focus = sid === 'all' ? total : statOver([sid], qs);
+  const focus = sid === 'all' ? total : statOver(scopeIds(sid), qs);
+  const inSel = id => sid !== 'all' && scopeIds(sid).includes(id);
   const rows = storesOrdered().map(st => ({ st, t: statOver([st.id], qs) }));
   const scale = Math.max(1, ...rows.map(r => Math.max(r.t.budget, r.t.used)));
   const bl = blocks();
   const groups = bl.map(b => ({ b, rows: rows.filter(r => r.st.blockId === b.id) })).filter(g => g.rows.length);
+  const blockRows = groups.map(g => ({ b: g.b, t: statOver(g.rows.map(r => r.st.id), qs) }));
+  const bScale = Math.max(1, ...blockRows.map(r => Math.max(r.t.budget, r.t.used)));
   const loose = rows.filter(r => !bl.some(b => b.id === r.st.blockId));
   if (loose.length) groups.push({ b: { name: '(ブロック未設定)' }, rows: loose });
   const B = focus.budget, over = B > 0 && focus.used > B;
@@ -1916,7 +1936,7 @@ function viewBudgetChart() {
   <div class="view-head">
     ${budgetTabs()}
     ${periodHtml()}
-    ${storeSelect('b-store', 'b-store', sid, true)}
+    ${storeSelect('b-store', 'b-store', sid, true, null, true, true)}
   </div>
   ${state.period.mode === 'month' ? '<p class="muted small-text" style="margin-top:-4px">グラフは四半期単位で集計します(選んだ月を含む四半期を表示しています)。</p>' : ''}
   <div class="panel">
@@ -1933,16 +1953,23 @@ function viewBudgetChart() {
     <div class="cum-legend small-text muted"><span><i class="dot dot-alloc"></i>実績</span><span><i class="dot cum-dot-plan"></i>配分予算(まだ費用が入っていないイベント)</span><span><i class="bc-key-mark"></i>予算</span></div>
   </div>
   <div class="panel">
+    <div class="view-head" style="margin-bottom:6px"><h3 style="margin:0">ブロックごとの予算対比</h3><span class="muted small-text">${esc(periodLabel)} / 各ブロックの店舗の積み上げ</span></div>
+    <div class="bc">
+      ${blockRows.map(r => `<div class="bc-row ${r.b.id && r.b.id === sid ? 'sel' : ''}" tabindex="0" ${r.b.id ? `data-act="bc-store" data-v="${r.b.id}"` : ''} data-tip="${esc(budgetTip(r.b.name, r.t))}">
+        <div class="bc-name"><b>${esc(r.b.name)}</b></div>${budgetBar(r.t, bScale)}<div class="bc-val">${budgetVal(r.t)}</div></div>`).join('')}
+    </div>
+  </div>
+  <div class="panel">
     <div class="view-head" style="margin-bottom:6px"><h3 style="margin:0">店舗ごとの予算対比</h3><span class="muted small-text">${esc(periodLabel)}</span></div>
     <div class="cum-legend small-text muted" style="margin:0 0 10px"><span><i class="dot dot-alloc"></i>実績</span><span><i class="dot cum-dot-plan"></i>配分予算</span><span><i class="bc-key-track"></i>予算の長さ</span><span><i class="bc-key-mark"></i>予算の位置</span></div>
     <div class="bc">
       ${groups.map(g => `<div class="bc-block">${esc(g.b.name)}</div>
-        ${g.rows.map(r => `<div class="bc-row ${r.st.id === sid ? 'sel' : ''}" tabindex="0" data-act="bc-store" data-v="${r.st.id}" data-tip="${esc(budgetTip(r.st.name, r.t))}">
+        ${g.rows.map(r => `<div class="bc-row ${inSel(r.st.id) ? 'sel' : ''}" tabindex="0" data-act="bc-store" data-v="${r.st.id}" data-tip="${esc(budgetTip(r.st.name, r.t))}">
           <div class="bc-name">${esc(r.st.name)}</div>${budgetBar(r.t, scale)}<div class="bc-val">${budgetVal(r.t)}</div></div>`).join('')}`).join('')}
       <div class="bc-row bc-total" tabindex="0" data-tip="${esc(budgetTip('全店合計', total))}">
         <div class="bc-name">全店合計</div><div class="bc-bar bc-bar-none"></div><div class="bc-val">${budgetVal(total)}</div></div>
     </div>
-    <p class="muted small-text" style="margin:8px 0 0">棒にマウスを乗せると内訳が出ます。店舗をクリックすると、上の数字がその店舗に切り替わります。着地見込みは「年度の累計」と同じ数え方です(終わった四半期は実績、今と先はイベントごとに費用があれば実績・なければ配分予算)。</p>
+    <p class="muted small-text" style="margin:8px 0 0">棒にマウスを乗せると内訳が出ます。店舗やブロックをクリックすると、上の数字がそこに切り替わります(もう一度押すと全店)。着地見込みは「年度の累計」と同じ数え方です(終わった四半期は実績、今と先はイベントごとに費用があれば実績・なければ配分予算)。</p>
   </div>
   <div class="panel">
     <div class="view-head" style="margin-bottom:6px"><h3 style="margin:0">項目ごとの使用金額(実績)</h3><span class="muted small-text">${sid === 'all' ? '全店' : esc(storeName(sid))} / ${esc(periodLabel)}</span></div>
@@ -2609,6 +2636,7 @@ C['bc-store'] = el => go(() => { state.bStore = state.bStore === el.dataset.v ? 
  * 「全店舗」(分析シート)や「合算」(四半期計画)は、それを選べるタブだけに効く。
  */
 function linkStore(v) {
+  if (planGroup(v)) { state.uStore = v; state.plan.storeId = v; return; } // 合算は費用実績・反響実績・四半期計画で
   if (!storeById(v)) return;
   state.uStore = v; state.plan.storeId = v; state.eStore = v;
 }
@@ -2709,7 +2737,12 @@ CH['u-store'] = el => go(() => { linkStore(el.value); state.uStore = el.value; }
 C['u-q-step'] = el => go(() => linkPeriod(...stepQuarter(state.uFy, state.uQ, Number(el.dataset.v))));
 C['u-q-today'] = () => go(() => linkPeriod(fyOf(today()), qOf(today())));
 C['cost-new'] = el => {
-  const sid = el.dataset.store != null ? el.dataset.store : (state.tab === 'actual' ? state.uStore : '');
+  let sid = el.dataset.store != null ? el.dataset.store : (state.tab === 'actual' ? state.uStore : '');
+  if (isScope(sid)) { // 合算を見ているとき:イベントに参加しているのが1店舗だけならその店舗、ほかは選んでもらう
+    const ev = el.dataset.ev && getEvent(el.dataset.ev);
+    const hit = ev ? scopeIds(sid).filter(id => participants(ev).includes(id)) : [];
+    sid = hit.length === 1 ? hit[0] : '';
+  }
   openCostModal({ target: el.dataset.ev ? 'event' : el.dataset.target || '', eventId: el.dataset.ev || '', storeId: sid });
 };
 C['export-excel'] = () => exportBudgetExcel();
