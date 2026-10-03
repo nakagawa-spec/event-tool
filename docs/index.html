@@ -2088,9 +2088,9 @@ MODALS.result = m => {
   const fields = visit
     ? `<div class="rs-grid">${n('rs-visits', '来場組数', '組', 'ご来場いただいた組数(家族連れも1組)', r.visits)}
         ${n('rs-new', 'うち新規', '組', '初めて来られた組数', r.newVisits)}
-        ${n('rs-appts', '次回アポ', '組', '次の打ち合わせ等の約束が取れた組数', r.appts)}</div>`
+        ${n('rs-appts', '次回アポ', '組', '次の打ち合わせ等の約束が取れた組数<br><b>新規・既存問わず、このイベントでアポが取れた件数</b>', r.appts)}</div>`
     : `<div class="rs-grid">${n('rs-leads', '名簿獲得数', '件', 'アンケート等でお名前・連絡先をいただいた件数', r.leads)}
-        ${n('rs-appts', 'アポ数', '件', '来場・打ち合わせの約束が取れた件数', r.appts)}</div>`;
+        ${n('rs-appts', 'アポ数', '件', '来場・打ち合わせの約束が取れた件数<br><b>新規・既存問わず、このイベントでアポが取れた件数</b>', r.appts)}</div>`;
   return `<h2>反響実績を入力</h2>
     <div class="rs-ev"><span class="typetag ${typeClass(e)}"></span><b>${esc(e.name)}</b><br>
       <span class="muted small-text">${dateRange(e)} / ${esc(storeLabel(e))} / ${esc(e.type)}</span></div>
