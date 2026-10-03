@@ -715,16 +715,27 @@ function shareOf(e, sid) {
   return sum(e.allocations || [], a => num((a.amounts || {})[sid]));
 }
 function usedOf(e) { return sum(e.expenses || [], x => num(x.amount)); }
-/** 店舗ごとの使用金額。合同イベントは割り振った予算の比率で按分する */
-function usedShare(e, sid) {
-  const u = usedOf(e);
-  if (isSingle(e)) return e.stores[0] === sid ? u : 0;
+/**
+ * 費用明細1件のうち、その店舗の分。
+ * 合同・全店共通は、明細を入れた店舗(storeId)の分(イベント全体は各店舗の積み上げ)。
+ * 店舗が付いていない以前の明細だけは、これまでどおり割り振った予算の比率で按分する。
+ */
+function expShare(e, x, sid) {
+  const a = num(x.amount);
+  if (sid === 'all') return a;
+  if (isSingle(e)) return e.stores[0] === sid ? a : 0;
   const p = participants(e);
   if (!p.includes(sid)) return 0;
+  if (x.storeId && p.includes(x.storeId)) return x.storeId === sid ? a : 0;
   const tot = budgetOf(e);
-  return tot > 0 ? u * shareOf(e, sid) / tot : u / p.length;
+  return tot > 0 ? a * shareOf(e, sid) / tot : a / p.length; // 以前の明細
 }
-function ratio(e, sid) { const u = usedOf(e); return sid === 'all' ? 1 : u > 0 ? usedShare(e, sid) / u : (participants(e).includes(sid) ? 1 / participants(e).length : 0); }
+/** その店舗の明細か(合同イベントで、ほかの店舗が入れた明細は false) */
+function expMine(e, x, sid) { return sid === 'all' || isSingle(e) || !(x.storeId && participants(e).includes(x.storeId)) || x.storeId === sid; }
+/** 店舗ごとの使用金額 */
+function usedShare(e, sid) { return sum(e.expenses || [], x => expShare(e, x, sid)); }
+/** その店舗の費用が1件でも入っているか */
+function hasCostFor(e, sid) { return (e.expenses || []).some(x => expMine(e, x, sid) && (sid === 'all' || participants(e).includes(sid))); }
 function todoDone(e, key) {
   if (key === 'result' && allEntered(e)) return true;
   return !!(e.todos && e.todos[key]);
@@ -763,7 +774,7 @@ function cumulative(fy, q, sid) {
     ids.forEach(id => {
       t.budget += num((getDoc(`plans/${fy}-q${i}-${id}`) || {}).budget);
       eventsIn(r, id).forEach(e => {
-        if (t.past || (e.expenses || []).length) t.actual += usedShare(e, id);
+        if (t.past || hasCostFor(e, id)) t.actual += usedShare(e, id);
         else t.planned += shareOf(e, id);
       });
       t.actual += sum(othersIn(r, id), c => num(c.amount));
@@ -804,15 +815,15 @@ function othersIn(range, sid) {
   return costList().filter(c => c.date && c.date >= range[0] && c.date <= range[1] && (sid === 'all' || c.storeId === sid))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
-/** 店舗・期間の費用明細(イベントの費用+イベント以外の費用)。費用の日付で絞り込む。amt は店舗分(按分後) */
+/** 店舗・期間の費用明細(イベントの費用+イベント以外の費用)。amt はその店舗の分 */
 function costRows(range, sid) {
   const rows = [];
   evList().forEach(e => {
     if (sid !== 'all' && !participants(e).includes(sid)) return;
-    const r = ratio(e, sid);
     (e.expenses || []).forEach(x => {
       const d = e.start; // イベントの費用は開催月に入れる
-      if (d && d >= range[0] && d <= range[1]) rows.push({ kind: 'event', e, x, date: d, full: num(x.amount), amt: num(x.amount) * r, by: x.by || '' });
+      if (!expMine(e, x, sid)) return; // ほかの店舗が入れた明細
+      if (d && d >= range[0] && d <= range[1]) rows.push({ kind: 'event', e, x, date: d, full: num(x.amount), amt: expShare(e, x, sid), by: x.by || '' });
     });
   });
   othersIn(range, sid).forEach(c => rows.push({ kind: 'other', x: c, date: c.date, full: num(c.amount), amt: num(c.amount), by: c.updatedBy || c.createdBy || '' }));
@@ -1351,7 +1362,7 @@ function viewPlan() {
         <td class="act-cell">${isSingle(e)
           ? `<button class="link small" data-act="budget-event" data-id="${e.id}">変更</button>`
           : `<button class="link small" data-act="alloc-event" data-id="${e.id}">割り振る</button>`}</td>
-        <td class="num">${isSingle(e) ? '' : '<span class="muted small-text">按分 </span>'}${yen(usedX(e))}</td>
+        <td class="num">${yen(usedX(e))}</td>
       </tr>`).join('')}
     </table></div>` : '<div class="empty">この四半期のイベントはまだありません</div>'}
   </div>
@@ -1517,7 +1528,7 @@ async function exportBudgetExcel() {
         set('E' + n, r.e ? [r.e.name, r.x.desc].filter(Boolean).join('　') : (r.x.desc || 'イベント以外の費用'), null, true);
         set('H' + n, r.x.supplier || null, null, true); // 発注先
         set('J' + n, amt(r));
-        const note = r.e && !isSingle(r.e) ? `${isAll(r.e) ? '全店' : '合同'}按分` : !r.e ? 'イベント以外' : '';
+        const note = r.e && !isSingle(r.e) ? (isAll(r.e) ? '全店共通' : '合同') : !r.e ? 'イベント以外' : '';
         set('L' + n, note || null, null, true);
         rest -= amt(r);
       }
@@ -1605,7 +1616,7 @@ function viewActual() {
       ${body}
       <tr class="total"><td colspan="6">四半期の合計</td><td class="num">${yen(used)}</td><td colspan="2"></td></tr>
     </table></div>
-    <p class="muted small-text">行をクリックすると、直したり削除したりできます。イベントの費用は開催月に入ります。合同・全店共通イベントの費用は、各店舗に割り振った予算の比率で按分した「この店舗分」を合計しています。</p>`
+    <p class="muted small-text">行をクリックすると、直したり削除したりできます。イベントの費用は開催月に入ります。合同・全店共通イベントの費用は、この店舗が入れた分です(イベント全体の金額は各店舗の合計)。</p>`
     : `<div class="empty">この四半期の費用はまだ入力されていません。<br><button class="primary" style="margin-top:10px" data-act="cost-new">＋ 費用を入力</button></div>`;
 
   const evTable = evs.length ? `<div class="table-wrap"><table>
@@ -1710,11 +1721,10 @@ function viewBudget() {
   // 項目ごとの使用金額
   const byItem = {};
   evs.forEach(e => {
-    const r = ratio(e, sid);
-    (e.expenses || []).forEach(x => {
+    (e.expenses || []).filter(x => expMine(e, x, sid)).forEach(x => {
       const k = x.costItemId || '';
       byItem[k] = byItem[k] || { total: 0, count: 0 };
-      byItem[k].total += num(x.amount) * r; byItem[k].count++;
+      byItem[k].total += expShare(e, x, sid); byItem[k].count++;
     });
   });
   const others = othersIn(range, sid);
@@ -1744,7 +1754,7 @@ function viewBudget() {
   ${cumulativeHtml(cumulative(fyOf(range[1]), qOf(range[1]), sid))}
   <div class="panel">
     <h3>イベントごとの予算と使用金額</h3>
-    ${sid !== 'all' ? '<p class="muted small-text" style="margin-top:-4px">合同・全店共通イベントは、この店舗に割り振った予算と、按分した使用金額を表示しています。明細はイベント全体の金額です。</p>' : ''}
+    ${sid !== 'all' ? '<p class="muted small-text" style="margin-top:-4px">合同・全店共通イベントは、この店舗に割り振った予算と、この店舗が入れた使用金額を表示しています(明細は全店舗分)。</p>' : ''}
     ${evs.length ? `<div class="table-wrap"><table>
       <tr><th></th><th>日付</th><th>イベント名</th><th>店舗</th><th class="num">予算</th><th class="num">使用金額</th><th class="num">残り</th></tr>
       ${evs.map(e => {
@@ -1780,14 +1790,18 @@ function viewBudget() {
 }
 function expenseEditor(e) {
   const xs = e.expenses || [];
+  const joint = !isSingle(e), ps = participants(e); // 合同・全店共通は明細ごとに店舗を持つ
   const budgetPart = isSingle(e)
     ? `予算 ${yen(num(e.budget))} <button class="small" data-act="budget-event" data-id="${e.id}">予算を変更</button>`
     : `予算 ${yen(budgetOf(e))} <button class="small" data-act="alloc-event" data-id="${e.id}">予算を割り振る</button>`;
   return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">${budgetPart}
     <div class="grow"></div><button class="small" data-act="edit-event" data-id="${e.id}">イベントを編集</button></div>
     <table class="exp">
-      <tr><th>内容</th><th style="width:170px">項目</th><th style="width:150px">発注先</th><th style="width:130px" class="num">金額</th><th style="width:56px"></th></tr>
+      <tr>${joint ? '<th style="width:130px">店舗</th>' : ''}<th>内容</th><th style="width:170px">項目</th><th style="width:150px">発注先</th><th style="width:130px" class="num">金額</th><th style="width:56px"></th></tr>
       ${xs.map(x => `<tr>
+        ${joint ? `<td><select id="ex-${e.id}-${x.id}-store" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="storeId">
+          ${x.storeId && ps.includes(x.storeId) ? '' : '<option value="" selected>(按分)</option>'}
+          ${ps.map(id => `<option value="${id}" ${id === x.storeId ? 'selected' : ''}>${esc(storeName(id))}</option>`).join('')}</select></td>` : ''}
         <td><input id="ex-${e.id}-${x.id}-desc" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="desc" value="${esc(x.desc || '')}" placeholder="例:A4チラシ 5,000部"></td>
         <td><select id="ex-${e.id}-${x.id}-item" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="costItemId">
           ${costItems().map(c => `<option value="${c.id}" ${c.id === x.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
@@ -1869,7 +1883,7 @@ function viewEffect() {
     </table></div>` : '<div class="empty">この期間の出展イベントはありません</div>'}
   </div>
   <p class="muted small-text">行をクリックすると反響実績を入力できます。${sid !== 'all'
-    ? '店舗で絞り込んだときは、使用金額は按分したこの店舗の分、来場型の合同・全店共通イベントはこの店舗が入れた数です(出展イベントはイベント全体の数)。'
+    ? '店舗で絞り込んだときは、使用金額はこの店舗が入れた分、来場型の合同・全店共通イベントはこの店舗が入れた数です(出展イベントはイベント全体の数)。'
     : '合同・全店共通の来場型イベントは、各店舗が入れた数を合計しています。'}</p>`;
 }
 
@@ -2175,8 +2189,7 @@ MODALS.itemDetail = m => {
   const sid = state.bStore;
   const rows = [];
   eventsIn(periodRange(), sid).forEach(e => {
-    const r = ratio(e, sid);
-    (e.expenses || []).filter(x => (x.costItemId || '') === m.item).forEach(x => rows.push({ e, x, d: e.start, amt: num(x.amount) * r }));
+    (e.expenses || []).filter(x => (x.costItemId || '') === m.item && expMine(e, x, sid)).forEach(x => rows.push({ e, x, d: e.start, amt: expShare(e, x, sid) }));
   });
   othersIn(periodRange(), sid).filter(c => (c.costItemId || '') === m.item).forEach(c => rows.push({ e: null, x: c, d: c.date, amt: num(c.amount) }));
   rows.sort((a, b) => a.d.localeCompare(b.d));
@@ -2221,7 +2234,7 @@ MODALS.expense = m => {
   const tgt = (v, label, sub) => `<button type="button" class="${d.target === v ? 'on' : ''}" data-act="cx-target" data-v="${v}"><b>${label}</b><small>${sub}</small></button>`;
   const fields = !d.target ? '<p class="muted small-text">上のどちらかを選ぶと、入力欄が出てきます。</p>' : `
     ${d.target === 'event' ? `<label><span>どのイベントの費用ですか? *</span><select id="cx-event" data-act="cx-event">${costEventOptions(d.storeId, d.eventId)}</select></label>
-      ${ev && !isSingle(ev) ? '<div class="note">合同・全店共通のイベントです。<b>イベント全体でかかった金額</b>を入れてください。各店舗に割り振った予算の比率で自動的に按分されます(同じ費用を店舗ごとに重ねて入れないでください)。</div>' : ''}` : ''}
+      ${ev && !isSingle(ev) ? `<div class="note">合同・全店共通のイベントです。<b>${esc(storeName(d.storeId) || 'この店舗')}でかかった金額</b>を入れてください。各店舗が入れた金額の合計が、イベント全体の金額になります。</div>` : ''}` : ''}
     ${d.target === 'other' ? `<label><span>何月分の費用ですか? *</span><input type="month" id="cx-month" value="${esc(d.month)}" style="max-width:220px"></label>` : ''}
     <div class="field"><div class="cx-lines">
       <div class="cx-line cx-head"><span class="lbl">内容(何に使ったか)</span><span class="lbl">項目 *</span><span class="lbl">発注先</span><span class="lbl">金額(円) *</span><span></span></div>
@@ -2508,7 +2521,9 @@ C['alloc-event'] = el => {
 C['toggle-exp'] = el => go(() => { state.open[el.dataset.id] = !state.open[el.dataset.id]; });
 C['exp-add'] = el => {
   const e = clone(getEvent(el.dataset.id)); if (!e) return;
-  e.expenses = (e.expenses || []).concat({ id: uid(), costItemId: (costItems()[0] || {}).id || '', desc: '', amount: 0 });
+  const ps = participants(e);
+  const storeId = isSingle(e) ? e.stores[0] : [state.bStore, session.user.storeId].find(x => ps.includes(x)) || ps[0];
+  e.expenses = (e.expenses || []).concat({ id: uid(), costItemId: (costItems()[0] || {}).id || '', desc: '', amount: 0, storeId });
   saveDoc('events/' + e.id, e);
 };
 CH['exp-field'] = el => {
@@ -2544,7 +2559,7 @@ C['cost-edit'] = el => {
   }
   const e = getEvent(el.dataset.id); if (!e) return;
   const x = (e.expenses || []).find(r => r.id === el.dataset.x); if (!x) return;
-  const sid = (state.tab === 'actual' && state.uStore) || x.storeId || (isSingle(e) ? e.stores[0] : '');
+  const sid = (!isSingle(e) && x.storeId && participants(e).includes(x.storeId) && x.storeId) || (state.tab === 'actual' && state.uStore) || x.storeId || (isSingle(e) ? e.stores[0] : '');
   openCostModal({ target: 'event', eventId: e.id, storeId: sid, x });
 };
 
@@ -2569,6 +2584,8 @@ C['cx-save'] = () => {
   const d = m.draft;
   if (!d.storeId && d.target === 'other') return modalErr('店舗を選んでください');
   if (d.target === 'event' && !getEvent(d.eventId)) return modalErr('どのイベントの費用かを選んでください');
+  if (d.target === 'event' && !isSingle(getEvent(d.eventId)) && !participants(getEvent(d.eventId)).includes(d.storeId))
+    return modalErr('このイベントに参加している店舗を選んでください(合同イベントの費用は店舗ごとに入れます)');
   if (d.target === 'other' && !/^\d{4}-\d{2}$/.test(d.month || '')) return modalErr('何月分の費用かを入れてください');
   // 何も入れていない行は無視。入れかけの行は金額と項目が必要
   const lines = d.lines.filter(l => num(l.amount) > 0 || l.costItemId || String(l.desc || '').trim() || String(l.supplier || '').trim());
