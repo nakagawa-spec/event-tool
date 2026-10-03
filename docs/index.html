@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>店舗イベント管理</title>
+<title>HEALTHYHOME 店舗イベント管理 β版</title>
 <script src="config.js"></script>
 <style>
 :root{
@@ -63,6 +63,12 @@ h3{font-size:15px;margin-bottom:8px}
 .brand .b1{font-size:11px;letter-spacing:.08em;color:var(--accent)}
 .brand .b2{font-size:16px}
 .brand .b3{font-size:11px;color:var(--muted);font-weight:600}
+.bh-store{border-top:1px dashed var(--line);padding-top:6px !important;margin-top:4px}
+.bh-store input.money{width:180px;font-size:16px;font-weight:700}
+.auth-brand{display:flex;flex-direction:column;align-items:center;line-height:1.25;font-weight:700;margin-bottom:14px}
+.auth-brand .b1{font-size:13px;letter-spacing:.1em;color:var(--accent)}
+.auth-brand .b2{font-size:22px}
+.auth-brand .b3{font-size:12px;color:var(--muted);font-weight:600}
 .tabs{display:flex;gap:4px;flex-wrap:wrap}
 .tabs button{border:none;background:none;padding:6px 12px;border-radius:6px;color:var(--muted)}
 .tabs button.on{background:var(--accent-weak);color:var(--accent);font-weight:600}
@@ -331,7 +337,7 @@ const ROLES = ['admin', 'manager', 'employee', 'vendor'];
 // 操作のまとまりごとに、その操作のボタン(data-act)を並べる
 const PERM_ACTS = {
   event: ['new-event', 'day-new', 'track', 'ev-save', 'ev-delete', 'ev-delete-ask', 'ev-alloc', 'ev-all', 'ev-store', 'ev-block'],
-  plan: ['plan-budget', 'budget-event', 'alloc-event', 'memo-add', 'memo-del', 'eb-save', 'al-save', 'minutes-add', 'minutes-del'],
+  plan: ['plan-budget', 'plan-budget-store', 'budget-event', 'alloc-event', 'memo-add', 'memo-del', 'eb-save', 'al-save', 'minutes-add', 'minutes-del'],
   result: ['result-event', 'ev-result', 'rs-save'],
   cost: ['cost-new', 'cost-edit', 'exp-add', 'exp-del', 'exp-field', 'cx-save', 'cx-delete', 'cx-delete-ask'],
   config: ['store-settings', 'cost-master', 'st-save', 'ci-save'],
@@ -386,7 +392,7 @@ const DEFAULT_STORES = {
     { id: 'st_barazono2', name: 'バラ園２', blockId: 'blk_okayama', scale: 1 },
     { id: 'st_takumito', name: 'TAKUMITO', blockId: 'blk_okayama', scale: 1 },
     { id: 'st_kurashiki', name: '倉敷店', blockId: 'blk_kurashiki', scale: 1 },
-    { id: 'st_souten', name: '總展', blockId: 'blk_kurashiki', scale: 1 },
+    { id: 'st_souten', name: '総展', blockId: 'blk_kurashiki', scale: 1 },
     { id: 'st_soja', name: '総社店', blockId: 'blk_kurashiki', scale: 1 },
     { id: 'st_fukuyama', name: '福山店', blockId: 'blk_hiroshima', scale: 1 },
     { id: 'st_fukuyamaminami', name: '福山南展', blockId: 'blk_hiroshima', scale: 1 },
@@ -661,6 +667,9 @@ function storesOrdered() {
   stores().filter(s => !bl.includes(s.blockId)).forEach(s => out.push(s));
   return out;
 }
+/** 四半期計画で合算して見る店舗のまとまり */
+const PLAN_GROUPS = [{ id: 'grp_barazono', name: 'バラ園＋バラ園２', stores: ['st_barazono', 'st_barazono2'] }];
+function planGroup(id) { const g = PLAN_GROUPS.find(x => x.id === id); return g && g.stores.every(storeById) ? g : null; }
 function storeById(id) { return stores().find(s => s.id === id); }
 function storeName(id) { if (id === 'all') return '全店共通'; if (String(id).startsWith('co:')) return String(id).slice(3); const s = storeById(id); return s ? s.name : '(削除された店舗)'; }
 function costItems() { const d = getDoc('config/costItems'); return d && Array.isArray(d.items) ? d.items : DEFAULT_COST_ITEMS.items; }
@@ -713,7 +722,7 @@ function hasResult(e) { return !!(e.result && e.result.entered); }
  * 消化金額は四半期・店舗ごとに「費用が1件でも入っていれば実績、まだ1件もなければ予算(見込み)」で数える。
  */
 function cumulative(fy, q, sid) {
-  const ids = sid === 'all' ? stores().map(s => s.id) : [sid];
+  const ids = sid === 'all' ? stores().map(s => s.id) : Array.isArray(sid) ? sid : [sid];
   let budget = 0, used = 0;
   const quarters = [];
   for (let i = 1; i <= q; i++) {
@@ -1224,8 +1233,10 @@ function periodRange() {
   if (p.mode === 'quarter') return quarterRange(p.fy, p.q);
   return [`${p.fy}-04-01`, `${p.fy + 1}-03-31`];
 }
-function storeSelect(id, act, sel, withAll, placeholder) {
+function storeSelect(id, act, sel, withAll, placeholder, groups) {
+  const gs = groups ? PLAN_GROUPS.filter(g => planGroup(g.id)) : [];
   return `<select id="${id}" data-act="${act}">${withAll ? `<option value="all" ${sel === 'all' ? 'selected' : ''}>全店舗</option>` : ''}
+    ${gs.length ? `<optgroup label="合算">${gs.map(g => `<option value="${g.id}" ${g.id === sel ? 'selected' : ''}>${esc(g.name)}(合算)</option>`).join('')}</optgroup>` : ''}
     ${placeholder && !sel ? `<option value="" selected>${esc(placeholder)}</option>` : ''}
     ${blocks().map(b => `<optgroup label="${esc(b.name)}">${stores().filter(s => s.blockId === b.id).map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</optgroup>`).join('')}
     ${stores().filter(s => !blocks().some(b => b.id === s.blockId)).map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
@@ -1238,32 +1249,43 @@ function eventsIn(range, sid) {
 // ---------------------------------------------------------------- 四半期計画
 function viewPlan() {
   const p = state.plan;
-  if (!storeById(p.storeId)) p.storeId = (storesOrdered()[0] || {}).id || '';
+  const grp = planGroup(p.storeId);
+  if (!grp && !storeById(p.storeId)) p.storeId = (storesOrdered()[0] || {}).id || '';
   const sid = p.storeId;
   if (!sid) return `<div class="panel empty">店舗がありません。「店舗・ブロック設定」から追加してください</div>`;
   const range = quarterRange(p.fy, p.q);
-  const key = `plans/${p.fy}-q${p.q}-${sid}`;
+  const key = `plans/${p.fy}-q${p.q}-${sid}`; // 合算ページのメモ・議事録は合算ページ用に持つ
   const plan = getDoc(key) || {};
-  const evs = eventsIn(range, sid);
-  const budget = num(plan.budget);
-  const allocated = sum(evs, e => shareOf(e, sid));
-  const used = sum(evs, e => usedShare(e, sid));
+  const ids = grp ? grp.stores : [sid];
+  const storeBudget = id => num((getDoc(`plans/${p.fy}-q${p.q}-${id}`) || {}).budget);
+  const evs = evList().filter(e => e.start && e.start >= range[0] && e.start <= range[1] && ids.some(id => participants(e).includes(id)));
+  const shareX = e => sum(ids, id => shareOf(e, id));
+  const usedX = e => sum(ids, id => usedShare(e, id));
+  const budget = grp ? sum(ids, storeBudget) : num(plan.budget);
+  const allocated = sum(evs, shareX);
+  const used = sum(evs, usedX);
   const rest = budget - allocated;
   const memos = (plan.memos || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const minutes = (plan.minutes || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   return `
   <div class="view-head">
-    ${storeSelect('plan-store', 'plan-store', sid, false)}
+    ${storeSelect('plan-store', 'plan-store', sid, false, null, true)}
     <select id="plan-fy" data-act="plan-fy">${fyOptions(p.fy)}</select>
     <select id="plan-q" data-act="plan-q">${[1, 2, 3, 4].map(q => `<option value="${q}" ${q === p.q ? 'selected' : ''}>${Q_LABEL[q]}</option>`).join('')}</select>
     <span class="muted small-text">${ymd(range[0])}〜${ymd(range[1])}</span>
   </div>
   <div class="panel budget-hero">
     <div class="bh-main">
-      <div class="bh-title">${esc(storeName(sid))} ${Q_LABEL[p.q]}の予算</div>
+      ${grp ? `<div class="bh-title">${esc(grp.name)} ${Q_LABEL[p.q]}の予算(合算)</div>
+      <div class="bh-value">${budget ? yen(budget) : '未設定'}</div>
+      ${ids.map(id => `<div class="bh-row bh-store"><span>${esc(storeName(id))}</span>${can('plan')
+        ? moneyInput(`id="plan-budget-${id}" data-act="plan-budget-store" data-sid="${id}"`, storeBudget(id), '¥ 予算を入力')
+        : `<b>${yen(storeBudget(id))}</b>`}</div>`).join('')}
+      <div class="muted small-text">店舗ごとの予算を入れると、合算に反映されます(各店舗のページと同じ予算です)</div>`
+      : `<div class="bh-title">${esc(storeName(sid))} ${Q_LABEL[p.q]}の予算</div>
       ${can('plan') ? `${moneyInput('id="plan-budget" data-act="plan-budget" class="bh-input"', budget, '¥ 予算を入力')}
       <div class="muted small-text">金額を入れて Enter(または欄の外をクリック)で保存</div>`
-      : `<div class="bh-value">${budget ? yen(budget) : '未設定'}</div><div class="muted small-text">四半期予算は店長・管理者が入力します</div>`}
+      : `<div class="bh-value">${budget ? yen(budget) : '未設定'}</div><div class="muted small-text">四半期予算は店長・管理者が入力します</div>`}`}
     </div>
     <div class="bh-side">
       <div class="bh-row"><span><i class="dot dot-alloc"></i>イベントに配分した予算</span><b>${yen(allocated)}</b></div>
@@ -1272,21 +1294,22 @@ function viewPlan() {
       <div class="bh-row sub"><span>イベントの使用金額(実績)</span><b class="${used > budget && budget > 0 ? 'red' : ''}">${yen(used)}</b></div>
     </div>
   </div>
-  ${cumulativeHtml(cumulative(p.fy, p.q, sid))}
+  ${cumulativeHtml(cumulative(p.fy, p.q, grp ? ids : sid))}
   <div class="panel">
     <div class="view-head" style="margin-bottom:8px"><h3 style="margin:0">イベント計画</h3><div class="grow"></div>
-      <button class="small" data-act="new-event" data-store="${sid}" data-start="${range[0] > today() ? range[0] : (today() <= range[1] ? today() : range[0])}">＋ この店舗のイベントを登録</button></div>
+      <button class="small" data-act="new-event" ${grp ? '' : `data-store="${sid}"`} data-start="${range[0] > today() ? range[0] : (today() <= range[1] ? today() : range[0])}">＋ ${grp ? 'イベントを登録' : 'この店舗のイベントを登録'}</button></div>
     ${evs.length ? `<div class="table-wrap"><table>
-      <tr><th>日付</th><th>イベント名</th><th>種類</th><th>区分</th><th class="num">予算</th><th class="num">使用金額</th></tr>
+      <tr><th>日付</th><th>イベント名</th><th>種類</th>${grp ? '<th>店舗</th>' : ''}<th>区分</th><th class="num">予算${grp ? '(合算分)' : ''}</th><th class="num">使用金額${grp ? '(合算分)' : ''}</th></tr>
       ${evs.map(e => `<tr>
         <td class="nowrap">${dateRange(e)}</td>
         <td><a href="#" data-act="edit-event" data-id="${e.id}"><span class="typetag ${typeClass(e)}"></span>${esc(e.name)}</a></td>
         <td class="nowrap">${esc(e.type)}</td>
+        ${grp ? `<td class="nowrap">${ids.filter(id => participants(e).includes(id)).map(storeName).map(esc).join('・')}</td>` : ''}
         <td class="nowrap">${isSingle(e) ? '単独' : isAll(e) ? '全店共通' : '合同'}</td>
         <td class="num">${isSingle(e)
           ? `${yen(num(e.budget))} <button class="link small" data-act="budget-event" data-id="${e.id}">変更</button>`
-          : `${yen(shareOf(e, sid))} <button class="link small" data-act="alloc-event" data-id="${e.id}">割り振る</button>`}</td>
-        <td class="num">${yen(usedShare(e, sid))}${isSingle(e) ? '' : '<br><span class="muted small-text">按分</span>'}</td>
+          : `${yen(shareX(e))} <button class="link small" data-act="alloc-event" data-id="${e.id}">割り振る</button>`}</td>
+        <td class="num">${yen(usedX(e))}${isSingle(e) ? '' : '<br><span class="muted small-text">按分</span>'}</td>
       </tr>`).join('')}
     </table></div>` : '<div class="empty">この四半期のイベントはまだありません</div>'}
   </div>
@@ -2200,7 +2223,7 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && modalStack.length) closeModal();
   if (ev.key === 'Enter' && ev.target.id === 'stodo-text' && !ev.isComposing) ACT.click['stodo-add']();
   if (ev.key === 'Enter' && ev.target.id === 'eb-amount' && !ev.isComposing) ACT.click['eb-save']();
-  if (ev.key === 'Enter' && ev.target.id === 'plan-budget' && !ev.isComposing) ev.target.blur(); // Enter で確定(保存)
+  if (ev.key === 'Enter' && (ev.target.id === 'plan-budget' || ev.target.dataset.act === 'plan-budget-store') && !ev.isComposing) ev.target.blur(); // Enter で確定(保存)
   if (ev.key === 'Enter' && ev.target.id === 'memo-text' && (ev.ctrlKey || ev.metaKey)) ACT.click['memo-add']();
 });
 const C = ACT.click, CH = ACT.change, IN = ACT.input;
@@ -2325,6 +2348,12 @@ CH['plan-budget'] = el => {
   const plan = Object.assign({ budget: 0, memos: [] }, clone(getDoc(key) || {}));
   plan.budget = num(el.value);
   saveDoc(key, plan);
+};
+CH['plan-budget-store'] = el => {
+  const p = state.plan, key = `plans/${p.fy}-q${p.q}-${el.dataset.sid}`;
+  const plan = Object.assign({ budget: 0, memos: [] }, clone(getDoc(key) || {}));
+  plan.budget = num(el.value);
+  saveDoc(key, plan, `${storeName(el.dataset.sid)}の予算を保存しました`);
 };
 C['memo-add'] = () => {
   const text = $('memo-text').value.trim();
@@ -2669,7 +2698,7 @@ async function showAuth(mode) {
 function authHtml() {
   const demo = DEMO ? '<div class="note" style="background:var(--warn-weak);color:var(--warn)">お試しモードです。登録した内容はこのブラウザの中だけに保存されます。</div>' : '';
   if (authMode === 'change') return `<div class="auth"><div class="panel">
-    <h1>パスワードの変更</h1><p class="muted">仮パスワードでログインしました。新しいパスワードを決めてください。</p>
+    <div class="auth-brand"><span class="b1">HEALTHYHOME</span><span class="b2">店舗イベント管理</span><span class="b3">β版</span></div><h1>パスワードの変更</h1><p class="muted">仮パスワードでログインしました。新しいパスワードを決めてください。</p>
     <form data-form="change">
       <label><span>仮パスワード</span><input type="password" name="current" autocomplete="current-password" required></label>
       <label><span>新しいパスワード(8文字以上)</span><input type="password" name="password" autocomplete="new-password" required></label>
@@ -2678,7 +2707,7 @@ function authHtml() {
     </form>
     <p style="text-align:center"><button class="link small" data-act="logout">ログアウト</button></p></div></div>`;
   if (authMode === 'register') return `<div class="auth"><div class="panel">
-    <h1>新規登録</h1><p class="muted">店舗イベント管理を使うためのアカウントを作ります。</p>${demo}
+    <div class="auth-brand"><span class="b1">HEALTHYHOME</span><span class="b2">店舗イベント管理</span><span class="b3">β版</span></div><h1>新規登録</h1><p class="muted">店舗イベント管理を使うためのアカウントを作ります。</p>${demo}
     ${hasUsers ? '' : '<div class="note">まだ誰も登録していません。最初に登録した人が管理者になります。</div>'}
     <form data-form="register">
       <label><span>権限</span><select name="role" data-act="reg-role" ${hasUsers ? '' : 'disabled'}>
@@ -2697,7 +2726,7 @@ function authHtml() {
     </form>
     <p style="text-align:center" class="small-text">登録済みの方は <button class="link" data-act="auth-login">ログイン</button></p></div></div>`;
   return `<div class="auth"><div class="panel">
-    <h1>店舗イベント管理</h1><p class="muted">メールアドレスとパスワードでログインしてください。</p>${demo}
+    <div class="auth-brand"><span class="b1">HEALTHYHOME</span><span class="b2">店舗イベント管理</span><span class="b3">β版</span></div><p class="muted" style="text-align:center">メールアドレスとパスワードでログインしてください。</p>${demo}
     <form data-form="login">
       <label><span>メールアドレス</span><input type="email" name="email" autocomplete="email" required></label>
       <label><span>パスワード</span><input type="password" name="password" autocomplete="current-password" required></label>
