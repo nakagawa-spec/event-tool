@@ -257,6 +257,11 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .modal .rs-in input{font-size:20px;font-weight:700;padding:6px 10px}
 .rs-in em{font-style:normal;color:var(--muted)}
 input.money{text-align:right}
+.cx-lines{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.cx-line{display:grid;grid-template-columns:150px 190px minmax(0,1fr) 24px;gap:8px;align-items:center}
+.cx-line.cx-head .lbl{font-size:12px;font-weight:600;color:var(--muted)}
+.cx-line input,.cx-line select{width:100%}
+@media (max-width:700px){.cx-line{grid-template-columns:1fr 1fr}.cx-line.cx-head{display:none}.cx-line input:not(.money){grid-column:1/-1}}
 td.act-cell,th.act-cell{width:1%;white-space:nowrap;padding-left:2px;text-align:left}
 .bar.prep,.chip.prep{opacity:.35}
 .bar.prep:hover,.chip.prep:hover{opacity:.6}
@@ -347,7 +352,7 @@ const PERM_ACTS = {
   event: ['new-event', 'day-new', 'track', 'ev-save', 'ev-delete', 'ev-delete-ask', 'ev-alloc', 'ev-all', 'ev-store', 'ev-block'],
   plan: ['plan-budget', 'plan-budget-store', 'budget-event', 'alloc-event', 'memo-add', 'memo-del', 'eb-save', 'al-save', 'minutes-add', 'minutes-del'],
   result: ['result-event', 'ev-result', 'rs-save', 'rs-store'],
-  cost: ['cost-new', 'cost-edit', 'exp-add', 'exp-del', 'exp-field', 'cx-save', 'cx-delete', 'cx-delete-ask'],
+  cost: ['cost-new', 'cost-edit', 'exp-add', 'exp-del', 'exp-field', 'cx-save', 'cx-delete', 'cx-delete-ask', 'cx-line-add', 'cx-line-del'],
   config: ['store-settings', 'cost-master', 'st-save', 'ci-save'],
   prep: ['prep-toggle']
 };
@@ -409,7 +414,7 @@ const DEFAULT_STORES = {
 };
 const DEFAULT_COST_ITEMS = {
   items: [
-    { id: 'ci_flyer', name: 'チラシ・ポスティング' }, { id: 'ci_paper', name: '新聞折込' },
+    { id: 'ci_flyer', name: 'チラシ・ポスティング' }, { id: 'ci_design', name: 'デザイン費' },
     { id: 'ci_web', name: 'Web広告' }, { id: 'ci_sns', name: 'SNS広告' },
     { id: 'ci_venue', name: '会場費・出展料' }, { id: 'ci_gift', name: 'ノベルティ・景品' },
     { id: 'ci_deco', name: '装飾・備品' }, { id: 'ci_food', name: '飲食' }, { id: 'ci_other', name: 'その他' }
@@ -681,7 +686,8 @@ function planGroup(id) { const g = PLAN_GROUPS.find(x => x.id === id); return g 
 function storeById(id) { return stores().find(s => s.id === id); }
 function storeName(id) { if (id === 'all') return '全店共通'; if (String(id).startsWith('co:')) return String(id).slice(3); const s = storeById(id); return s ? s.name : '(削除された店舗)'; }
 function costItems() { const d = getDoc('config/costItems'); return d && Array.isArray(d.items) ? d.items : DEFAULT_COST_ITEMS.items; }
-function costName(id) { const c = costItems().find(x => x.id === id); return c ? c.name : '(削除された項目)'; }
+const OLD_COST_ITEMS = { ci_paper: '新聞折込' }; // 選べなくなった項目(以前の入力の表示用)
+function costName(id) { const c = costItems().find(x => x.id === id); return c ? c.name : OLD_COST_ITEMS[id] || '(削除された項目)'; }
 
 function evList() {
   return Object.keys(docs).filter(k => k.startsWith('events/') && docs[k]).map(k => docs[k])
@@ -2194,7 +2200,7 @@ function openCostModal(opt) {
     : state.tab === 'actual' && !(today() >= ur[0] && today() <= ur[1]) ? ur[0].slice(0, 7) : today().slice(0, 7);
   const draft = {
     target: opt.target || '', eventId: opt.eventId || '', storeId: opt.storeId || '', month,
-    costItemId: x ? x.costItemId : '', desc: x ? x.desc || '' : '', amount: x ? num(x.amount) : ''
+    lines: [{ costItemId: x ? x.costItemId : '', desc: x ? x.desc || '' : '', amount: x ? num(x.amount) : '' }]
   };
   const orig = x ? { target: opt.target, eventId: opt.eventId || '', id: x.id } : null;
   openModal({ kind: 'expense', draft, orig, x, confirmDel: false });
@@ -2215,11 +2221,21 @@ MODALS.expense = m => {
     ${d.target === 'event' ? `<label><span>どのイベントの費用ですか? *</span><select id="cx-event" data-act="cx-event">${costEventOptions(d.storeId, d.eventId)}</select></label>
       ${ev && !isSingle(ev) ? '<div class="note">合同・全店共通のイベントです。<b>イベント全体でかかった金額</b>を入れてください。各店舗に割り振った予算の比率で自動的に按分されます(同じ費用を店舗ごとに重ねて入れないでください)。</div>' : ''}` : ''}
     ${d.target === 'other' ? `<label><span>何月分の費用ですか? *</span><input type="month" id="cx-month" value="${esc(d.month)}" style="max-width:220px"></label>` : ''}
-    <label><span>金額(円) *</span>${moneyInput('id="cx-amount" style="max-width:220px"', d.amount, '例:¥55,000')}</label>
-    <label><span>項目 *</span><select id="cx-item"><option value="" ${d.costItemId ? '' : 'selected'}>選んでください</option>
-      ${costItems().map(c => `<option value="${c.id}" ${c.id === d.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
-      ${d.costItemId && !costItems().some(c => c.id === d.costItemId) ? `<option value="${esc(d.costItemId)}" selected>(削除された項目)</option>` : ''}</select></label>
-    <label><span>内容(何に使ったか)</span><input id="cx-desc" value="${esc(d.desc)}" placeholder="例:A4チラシ 5,000部 印刷代"></label>`;
+    <div class="field"><div class="cx-lines">
+      <div class="cx-line cx-head"><span class="lbl">金額(円) *</span><span class="lbl">項目 *</span><span class="lbl">内容(何に使ったか)</span><span></span></div>
+      ${d.lines.map((l, i) => `<div class="cx-line">
+        ${moneyInput(`id="cx-amount-${i}" aria-label="金額"`, l.amount, i ? '金額' : '例:¥55,000')}
+        <select id="cx-item-${i}" aria-label="項目"><option value="" ${l.costItemId ? '' : 'selected'}>選んでください</option>
+          ${costItems().map(c => `<option value="${c.id}" ${c.id === l.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+          ${l.costItemId && !costItems().some(c => c.id === l.costItemId) ? `<option value="${esc(l.costItemId)}" selected>${esc(costName(l.costItemId))}</option>` : ''}</select>
+        <input id="cx-desc-${i}" value="${esc(l.desc)}" placeholder="${i ? '' : '例:A4チラシ 5,000部 印刷代'}" aria-label="内容">
+        ${d.lines.length > 1 ? `<button type="button" class="link small danger-text" data-act="cx-line-del" data-i="${i}" title="この行を消す">×</button>` : '<span></span>'}
+      </div>`).join('')}
+    </div>
+    ${m.orig ? '' : d.lines.length < COST_LINES_MAX
+      ? `<button type="button" class="small" data-act="cx-line-add">＋ 明細を追加</button> <span class="muted small-text">続けて入れられます(最大${COST_LINES_MAX}件)</span>`
+      : `<span class="muted small-text">一度に入れられるのは${COST_LINES_MAX}件までです</span>`}
+    </div>`;
   const last = m.x && (m.x.by || m.x.updatedBy || m.x.createdBy);
   return `<h2>${m.orig ? '費用を直す' : '費用を入力'}</h2>
     <label><span>店舗 *</span>${storeSelect('cx-store', 'cx-store', d.storeId, false, '店舗を選んでください')}</label>
@@ -2246,10 +2262,13 @@ function readCostForm(m) {
   if ($('cx-store')) d.storeId = $('cx-store').value;
   if ($('cx-event')) d.eventId = $('cx-event').value;
   if ($('cx-month')) d.month = $('cx-month').value;
-  if ($('cx-amount')) d.amount = $('cx-amount').value;
-  if ($('cx-item')) d.costItemId = $('cx-item').value;
-  if ($('cx-desc')) d.desc = $('cx-desc').value;
+  d.lines.forEach((l, i) => {
+    if ($('cx-amount-' + i)) l.amount = $('cx-amount-' + i).value;
+    if ($('cx-item-' + i)) l.costItemId = $('cx-item-' + i).value;
+    if ($('cx-desc-' + i)) l.desc = $('cx-desc-' + i).value;
+  });
 }
+const COST_LINES_MAX = 10;
 /** 編集前の場所(イベントの明細 / costs)から取り除く */
 function removeCostAt(o) {
   if (o.target === 'event') {
@@ -2540,31 +2559,52 @@ C['cx-save'] = () => {
   if (!d.storeId && d.target === 'other') return modalErr('店舗を選んでください');
   if (d.target === 'event' && !getEvent(d.eventId)) return modalErr('どのイベントの費用かを選んでください');
   if (d.target === 'other' && !/^\d{4}-\d{2}$/.test(d.month || '')) return modalErr('何月分の費用かを入れてください');
-  if (!(num(d.amount) > 0)) return modalErr('金額を入れてください');
-  if (!d.costItemId) return modalErr('項目を選んでください');
+  // 何も入れていない行は無視。入れかけの行は金額と項目が必要
+  const lines = d.lines.filter(l => num(l.amount) > 0 || l.costItemId || String(l.desc || '').trim());
+  if (!lines.length) return modalErr('金額を入れてください');
+  for (let i = 0; i < lines.length; i++) {
+    const no = lines.length > 1 ? `${d.lines.indexOf(lines[i]) + 1}行目:` : '';
+    if (!(num(lines[i].amount) > 0)) return modalErr(no + '金額を入れてください');
+    if (!lines[i].costItemId) return modalErr(no + '項目を選んでください');
+  }
   const by = session.user.name, at = new Date().toISOString();
   const o = m.orig;
-  const id = o ? o.id : uid();
-  const rec = { id, costItemId: d.costItemId, desc: d.desc.trim(), amount: num(d.amount) };
+  const recs = lines.map((l, i) => ({ id: o && i === 0 ? o.id : uid(), costItemId: l.costItemId, desc: String(l.desc || '').trim(), amount: num(l.amount) }));
   closeModal();
   // 「何の費用か」を変えたときは、元の場所から移す
   if (o && !(o.target === d.target && (d.target === 'other' || o.eventId === d.eventId))) removeCostAt(o);
-  const msg = o ? '費用を保存しました' : '費用を入力しました';
+  const msg = o ? '費用を保存しました' : recs.length > 1 ? `費用を${recs.length}件入力しました` : '費用を入力しました';
   if (d.target === 'event') {
     const e = clone(getEvent(d.eventId));
     const list = e.expenses || [];
-    const i = list.findIndex(r => r.id === id);
-    const row = Object.assign({}, i >= 0 ? list[i] : {}, rec, { storeId: d.storeId, by, at });
-    delete row.date; // イベントの費用は開催月に入れるので日付は持たない
-    if (i >= 0) list[i] = row; else list.push(row);
+    recs.forEach(rec => {
+      const i = list.findIndex(r => r.id === rec.id);
+      const row = Object.assign({}, i >= 0 ? list[i] : {}, rec, { storeId: d.storeId, by, at });
+      delete row.date; // イベントの費用は開催月に入れるので日付は持たない
+      if (i >= 0) list[i] = row; else list.push(row);
+    });
     e.expenses = list;
-    saveDoc('events/' + e.id, e, msg);
+    saveDoc('events/' + e.id, e, msg); // 1つのイベントの明細なので、まとめて1回で保存
   } else {
-    const prev = getDoc('costs/' + id) || {};
-    saveDoc('costs/' + id, Object.assign({}, prev, rec, { date: d.month + '-01',
-      storeId: d.storeId, createdBy: prev.createdBy || by, createdAt: prev.createdAt || at, updatedBy: by, updatedAt: at
-    }), msg);
+    recs.forEach((rec, i) => {
+      const prev = getDoc('costs/' + rec.id) || {};
+      saveDoc('costs/' + rec.id, Object.assign({}, prev, rec, { date: d.month + '-01',
+        storeId: d.storeId, createdBy: prev.createdBy || by, createdAt: prev.createdAt || at, updatedBy: by, updatedAt: at
+      }), i === recs.length - 1 ? msg : null);
+    });
   }
+};
+C['cx-line-add'] = () => {
+  const m = topModal(); readCostForm(m);
+  if (m.draft.lines.length >= COST_LINES_MAX) return;
+  m.draft.lines.push({ costItemId: '', desc: '', amount: '' });
+  renderModal();
+  const el = $('cx-amount-' + (m.draft.lines.length - 1)); if (el) el.focus();
+};
+C['cx-line-del'] = el => {
+  const m = topModal(); readCostForm(m);
+  m.draft.lines.splice(Number(el.dataset.i), 1);
+  renderModal();
 };
 
 // アカウント管理
