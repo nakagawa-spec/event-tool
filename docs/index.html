@@ -59,7 +59,10 @@ h3{font-size:15px;margin-bottom:8px}
 
 /* ヘッダー */
 .top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
-.brand{font-weight:700;font-size:16px}
+.brand{display:flex;flex-direction:column;line-height:1.2;font-weight:700}
+.brand .b1{font-size:11px;letter-spacing:.08em;color:var(--accent)}
+.brand .b2{font-size:16px}
+.brand .b3{font-size:11px;color:var(--muted);font-weight:600}
 .tabs{display:flex;gap:4px;flex-wrap:wrap}
 .tabs button{border:none;background:none;padding:6px 12px;border-radius:6px;color:var(--muted)}
 .tabs button.on{background:var(--accent-weak);color:var(--accent);font-weight:600}
@@ -964,7 +967,7 @@ function shellHtml() {
   const u = session.user;
   return `
   <header class="top">
-    <div class="brand">店舗イベント管理</div>
+    <div class="brand"><span class="b1">HEALTHYHOME</span><span class="b2">店舗イベント管理</span><span class="b3">β版</span></div>
     <nav class="tabs" id="tabs"></nav>
     <div class="top-right">
       <span id="sync-info"></span>
