@@ -247,6 +247,14 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .modal .rs-in input{font-size:20px;font-weight:700;padding:6px 10px}
 .rs-in em{font-style:normal;color:var(--muted)}
 input.money{text-align:right}
+.bar.prep,.chip.prep{opacity:.35}
+.bar.prep:hover,.chip.prep:hover{opacity:.6}
+tr.prep td{color:var(--muted)}
+.prep-chk{background:var(--accent-weak);border-radius:8px;padding:8px 10px !important;display:flex !important;gap:6px;align-items:center;margin:4px 0 0 !important}
+.minutes-form{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.minutes-form #min-title{flex:1;min-width:160px}
+.minutes-form #min-url{flex:2;min-width:220px}
+.minutes-url{word-break:break-all}
 .stodo-form{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .stodo-form input[type=date]{width:140px}
 .stodo-form #stodo-text{flex:1;min-width:120px}
@@ -320,14 +328,15 @@ const ROLES = ['admin', 'manager', 'employee', 'vendor'];
 // 操作のまとまりごとに、その操作のボタン(data-act)を並べる
 const PERM_ACTS = {
   event: ['new-event', 'day-new', 'track', 'ev-save', 'ev-delete', 'ev-delete-ask', 'ev-alloc', 'ev-all', 'ev-store', 'ev-block'],
-  plan: ['plan-budget', 'budget-event', 'alloc-event', 'memo-add', 'memo-del', 'eb-save', 'al-save'],
+  plan: ['plan-budget', 'budget-event', 'alloc-event', 'memo-add', 'memo-del', 'eb-save', 'al-save', 'minutes-add', 'minutes-del'],
   result: ['result-event', 'ev-result', 'rs-save'],
   cost: ['cost-new', 'cost-edit', 'exp-add', 'exp-del', 'exp-field', 'cx-save', 'cx-delete', 'cx-delete-ask'],
-  config: ['store-settings', 'cost-master', 'st-save', 'ci-save']
+  config: ['store-settings', 'cost-master', 'st-save', 'ci-save'],
+  prep: ['prep-toggle']
 };
 // 権限ごとに、できる操作
 const ROLE_PERMS = {
-  admin: ['event', 'plan', 'result', 'cost', 'config'],
+  admin: ['event', 'plan', 'result', 'cost', 'config', 'prep'],
   manager: ['event', 'plan', 'result', 'cost'],
   employee: ['cost'],
   vendor: []
@@ -664,6 +673,9 @@ function isAll(e) { return (e.stores || []).includes('all'); }
 function isSingle(e) { return !isAll(e) && (e.stores || []).length === 1; }
 function participants(e) { return isAll(e) ? stores().map(s => s.id) : (e.stores || []).slice(); }
 function category(e) { return EXHIBIT_TYPES.includes(e.type) ? 'exhibit' : 'visit'; }
+/** 管理者が「準備完了」にしたイベントは、管理者の画面でだけ薄く表示する */
+function prepCls(e) { return myRole() === 'admin' && e.prepared ? ' prep' : ''; }
+function prepMark(e) { return myRole() === 'admin' && e.prepared ? '✓ ' : ''; }
 function typeClass(e) { return e.type === BIG ? 't-big' : category(e) === 'exhibit' ? 't-exhibit' : isAll(e) ? 't-all' : 't-visit'; }
 function storeLabel(e) {
   if (isAll(e)) return '全店共通';
@@ -1002,6 +1014,7 @@ function viewCalendar() {
       <span class="typetag t-all" style="margin-left:8px"></span>全店共通
       <span class="typetag t-exhibit" style="margin-left:8px"></span>出展
       <span class="typetag t-big" style="margin-left:8px"></span>大型出展
+      ${can('prep') ? '<span style="margin-left:10px">✓ 準備完了は薄く表示</span>' : ''}
     </span>
     <button class="primary" data-act="new-event">＋ イベントを登録</button>
   </div>
@@ -1061,9 +1074,9 @@ function calStore(y, m) {
     const placed = assignLanes(r.events, first, last);
     const lanes = Math.max(1, ...placed.map(p => p.lane + 1));
     const bg = days.map((d, i) => `<div class="sg-bg ${d.cls}" style="grid-column:${i + 1};grid-row:1/-1"></div>`).join('');
-    const bars = placed.map(p => `<div class="bar ${typeClass(p.e)}" data-act="edit-event" data-id="${p.e.id}"
+    const bars = placed.map(p => `<div class="bar ${typeClass(p.e)}${prepCls(p.e)}" data-act="edit-event" data-id="${p.e.id}"
         style="grid-column:${p.c1}/${p.c2 + 1};grid-row:${p.lane + 1}"
-        title="${esc(p.e.name)}\n${esc(dateRange(p.e))} / ${esc(p.e.type)}\n${esc(storeLabel(p.e))}">${esc(p.e.name)}</div>`).join('');
+        title="${esc(p.e.name)}\n${esc(dateRange(p.e))} / ${esc(p.e.type)}\n${esc(storeLabel(p.e))}${prepCls(p.e) ? '\n準備完了' : ''}">${prepMark(p.e)}${esc(p.e.name)}</div>`).join('');
     return `<div class="sg-row ${r.cls || ''}"><div class="sg-name">${esc(r.label)}</div>
       <div class="sg-track" data-act="track" data-sid="${r.sid}" data-first="${first}" style="--n:${n};--lanes:${lanes}">${bg}${bars}</div></div>`;
   }).join('');
@@ -1080,7 +1093,7 @@ function calMonth(y, m) {
   for (let d = start; d <= end; d = addDays(d, 1)) {
     const hol = holidayName(d);
     const chips = evs.filter(e => e.start <= d && evEnd(e) >= d).map(e =>
-      `<div class="chip ${typeClass(e)}" data-act="edit-event" data-id="${e.id}" title="${esc(e.name)} / ${esc(storeLabel(e))}">${esc(storeLabel(e))}|${esc(e.name)}</div>`).join('');
+      `<div class="chip ${typeClass(e)}${prepCls(e)}" data-act="edit-event" data-id="${e.id}" title="${esc(e.name)} / ${esc(storeLabel(e))}">${prepMark(e)}${esc(storeLabel(e))}|${esc(e.name)}</div>`).join('');
     cells += `<div class="mc-cell ${dayClass(d)} ${d < first || d > last ? 'out' : ''} ${d === td ? 'today' : ''}" data-act="day-new" data-date="${d}">
       <div class="mc-date"><b>${Number(d.slice(8))}</b>${hol ? `<span class="mc-hol">${esc(hol)}</span>` : ''}</div>${chips}</div>`;
   }
@@ -1092,8 +1105,9 @@ function calList(y, m) {
   const money = myRole() !== 'vendor'; // 事業者には金額・実績を見せない
   if (!evs.length) return `<div class="panel empty">この月のイベントはまだありません</div>`;
   return `<div class="table-wrap"><table>
-    <tr><th>日付</th><th>イベント名</th><th>種類</th><th>店舗</th>${money ? '<th class="num">予算</th><th class="num">使用金額</th><th>成果</th>' : ''}</tr>
-    ${evs.map(e => `<tr class="clickable" data-act="edit-event" data-id="${e.id}">
+    <tr>${can('prep') ? '<th>準備</th>' : ''}<th>日付</th><th>イベント名</th><th>種類</th><th>店舗</th>${money ? '<th class="num">予算</th><th class="num">使用金額</th><th>成果</th>' : ''}</tr>
+    ${evs.map(e => `<tr class="clickable${prepCls(e)}" data-act="edit-event" data-id="${e.id}">
+      ${can('prep') ? `<td><input type="checkbox" data-act="prep-toggle" data-id="${e.id}" ${e.prepared ? 'checked' : ''} aria-label="準備完了"></td>` : ''}
       <td class="nowrap">${dateRange(e)}</td><td><span class="typetag ${typeClass(e)}"></span>${esc(e.name)}</td>
       <td class="nowrap">${esc(e.type)}</td><td>${esc(storeLabel(e))}</td>
       ${money ? `<td class="num">${yen(budgetOf(e))}</td><td class="num">${yen(usedOf(e))}</td><td>${resultBadge(e)}</td>` : ''}</tr>`).join('')}
@@ -1233,6 +1247,7 @@ function viewPlan() {
   const used = sum(evs, e => usedShare(e, sid));
   const rest = budget - allocated;
   const memos = (plan.memos || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const minutes = (plan.minutes || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   return `
   <div class="view-head">
     ${storeSelect('plan-store', 'plan-store', sid, false)}
@@ -1281,7 +1296,104 @@ function viewPlan() {
     </div>
     ${memos.length ? memos.map(mm => `<div class="memo"><div class="d">${ymd(mm.date)}${mm.by ? `<br>${esc(mm.by)}` : ''}</div><div class="txt">${esc(mm.text)}</div>
       <button class="link small danger-text" data-act="memo-del" data-id="${mm.id}">削除</button></div>`).join('') : '<div class="muted small-text">メモはまだありません</div>'}
+    <h3 style="margin-top:18px">議事録</h3>
+    <div class="minutes-form" ${can('plan') ? '' : 'hidden'}>
+      <input id="min-title" placeholder="タイトル(例:10/5 販促会議)" aria-label="議事録のタイトル">
+      <input type="url" id="min-url" placeholder="議事録のURL(https://…)" aria-label="議事録のURL">
+      <button class="primary" data-act="minutes-add">追加</button>
+    </div>
+    ${minutes.length ? minutes.map(mm => `<div class="memo"><div class="d">${ymd(mm.date)}${mm.by ? `<br>${esc(mm.by)}` : ''}</div>
+      <div class="txt"><a href="${esc(mm.url)}" target="_blank" rel="noopener noreferrer">${esc(mm.title || mm.url)}</a>
+        ${mm.title ? `<br><span class="muted small-text minutes-url">${esc(mm.url)}</span>` : ''}</div>
+      <button class="link small danger-text" data-act="minutes-del" data-id="${mm.id}">削除</button></div>`).join('') : '<div class="muted small-text">議事録はまだありません</div>'}
   </div>`;
+}
+
+// ---------------------------------------------------------------- 広告予算管理表(Excel)の出力
+// docs/budget_template.xlsx(元の管理表から実データを消した1タブのひな形)に、今開いている四半期・店舗の数字を入れる
+const EXCEL_LIB = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+const EXCEL_FIRST = 10, EXCEL_LAST = 81; // ひな形の明細行
+function loadScript(src) {
+  return new Promise((ok, ng) => {
+    const el = document.createElement('script');
+    el.src = src; el.onload = ok; el.onerror = () => ng(new Error('Excel出力の部品を読み込めませんでした'));
+    document.head.appendChild(el);
+  });
+}
+async function exportBudgetExcel() {
+  const sid = state.uStore; if (!sid) return;
+  const fy = state.uFy, q = state.uQ, range = uRange();
+  const qn = `第${q}四半期`;
+  setBusy(1);
+  try {
+    if (!window.ExcelJS) await loadScript(EXCEL_LIB);
+    const res = await fetch('budget_template.xlsx', { cache: 'no-cache' });
+    if (!res.ok) throw new Error('ひな形のファイルが見つかりません');
+    const wb = new window.ExcelJS.Workbook();
+    await wb.xlsx.load(await res.arrayBuffer());
+    const ws = wb.worksheets[0];
+    ws.name = qn;
+
+    const rows = costRows(range, sid);
+    const last = Math.max(EXCEL_LAST, EXCEL_FIRST + rows.length - 1);
+    // 見出し・上の集計欄
+    ws.getCell('A1').value = `${fy - 1990}期　広告予算管理表(${storeName(sid)})`;
+    ws.getCell('B3').value = `${qn}　支給予算額`;
+    ws.getCell('B4').value = `${qn}　広告宣伝費使用額`;
+    ws.getCell('B5').value = `${qn}　販売促進費使用額`;
+    ws.getCell('B6').value = `${qn}　残予算額`;
+    const budget = num((getDoc(`plans/${fy}-q${q}-${sid}`) || {}).budget);
+    ws.getCell('E3').value = budget || null;
+    const mine = evList().filter(e => e.start && participants(e).includes(sid) && hasResult(e));
+    [0, 1, 2].forEach(i => {
+      const d = fromDS(range[0]); d.setUTCMonth(d.getUTCMonth() + i);
+      const ym = toDS(d).slice(0, 7), m = d.getUTCMonth() + 1, r = 3 + i;
+      ws.getCell('G' + r).value = `${m}月使用`;
+      ws.getCell('H' + r).value = { formula: `SUMIF($B$${EXCEL_FIRST}:$B$${last},"${m}月",$J$${EXCEL_FIRST}:$J$${last})` };
+      const evs = mine.filter(e => e.start.startsWith(ym));
+      const leads = sum(evs.filter(e => category(e) === 'exhibit'), e => num(e.result.leads));
+      const visits = sum(evs.filter(e => category(e) === 'visit'), e => num(e.result.visits));
+      ws.getCell('J' + r).value = leads || null;  // 取得名簿数
+      ws.getCell('L' + r).value = visits || null; // 来場数
+      // 契約数(N)はこのツールにないので空欄
+    });
+
+    // 明細(ひな形の72行を超えたら、最後の行の書式をまねて足す)
+    const tpl = ws.getRow(EXCEL_LAST);
+    rows.forEach((r, i) => {
+      const n = EXCEL_FIRST + i;
+      const row = ws.getRow(n);
+      if (n > EXCEL_LAST) {
+        tpl.eachCell({ includeEmpty: true }, (c, col) => { row.getCell(col).style = JSON.parse(JSON.stringify(c.style)); });
+        row.height = tpl.height;
+        row.getCell('A').value = n - EXCEL_FIRST + 1;
+        row.getCell('K').value = { formula: `K${n - 1}-J${n}` };
+      }
+      row.getCell('B').value = `${Number(r.date.slice(5, 7))}月`;
+      // C 部門(広告宣伝費/販促費)・F コード・H 発注先・I 決済 は、このツールにないので空欄
+      row.getCell('D').value = costName(r.x.costItemId);
+      row.getCell('E').value = r.e ? [r.e.name, r.x.desc].filter(Boolean).join('　') : (r.x.desc || 'イベント以外の費用');
+      row.getCell('J').value = Math.round(r.amt);
+      const note = [];
+      if (r.e && !isSingle(r.e)) note.push(`${isAll(r.e) ? '全店共通' : '合同'}(全体 ${yen(r.full)} を按分)`);
+      if (!r.e) note.push('イベント以外');
+      row.getCell('L').value = note.join(' ') || null;
+    });
+    wb.calcProperties.fullCalcOnLoad = true; // 開いたときに数式を計算し直す
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${fy - 1990}期_広告予算管理表_${storeName(sid)}_${qn}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    toast('Excelを出力しました');
+  } catch (e) {
+    toast('Excelを出力できませんでした:' + e.message, { err: true });
+  } finally {
+    setBusy(-1);
+  }
 }
 
 // ---------------------------------------------------------------- 費用実績・反響実績(各店の事務向け。四半期単位で表示)
@@ -1311,7 +1423,7 @@ function evCell(e) {
 
 function viewActual() {
   const sid = uCheckStore();
-  const head = uHead('<button class="primary big" data-act="cost-new">＋ 費用を入力</button>');
+  const head = uHead('<button class="big" data-act="export-excel" title="この四半期の費用を広告予算管理表の形で出力します">Excelで出力</button><button class="primary big" data-act="cost-new">＋ 費用を入力</button>');
   if (!sid) return head + U_NO_STORE;
   const range = uRange();
   const rows = costRows(range, sid);
@@ -1714,6 +1826,7 @@ MODALS.event = m => {
     <label><span>種類</span><select id="ev-type">${typeOpts}</select></label>
     <div class="field"><div class="lbl">予算</div>${budget}</div>
     <label><span>メモ</span><textarea id="ev-memo">${esc(e.memo || '')}</textarea></label>
+    ${can('prep') ? `<label class="chk prep-chk"><input type="checkbox" id="ev-prepared" ${e.prepared ? 'checked' : ''}> <b>準備完了</b><span class="muted small-text">(カレンダーで薄く表示します。管理者だけに見えます)</span></label>` : ''}
     <div class="err"></div>
     <div class="foot">
       ${m.isNew ? '' : m.confirmDel
@@ -1732,6 +1845,7 @@ function readEventForm(m) {
   e.end = $('ev-end').value;
   e.type = $('ev-type').value;
   e.memo = $('ev-memo').value;
+  if ($('ev-prepared')) e.prepared = $('ev-prepared').checked;
   if ($('ev-budget')) e.budget = num($('ev-budget').value);
   if ($('ev-all').checked) e.stores = ['all'];
   else e.stores = [...document.querySelectorAll('#modal-root .ev-store:checked')].map(x => x.value);
@@ -2044,6 +2158,11 @@ C['new-event'] = el => {
   openEventModal(null, preset);
 };
 C['edit-event'] = el => openEventModal(el.dataset.id);
+CH['prep-toggle'] = el => {
+  const e = clone(getEvent(el.dataset.id)); if (!e) return;
+  e.prepared = el.checked;
+  saveDoc('events/' + e.id, e, el.checked ? '準備完了にしました' : '準備完了を外しました');
+};
 C['result-event'] = el => openResultModal(el.dataset.id);
 C['day-new'] = el => openEventModal(null, { start: el.dataset.date });
 C.track = (el, ev) => {
@@ -2132,6 +2251,22 @@ C['memo-add'] = () => {
   $('memo-text').value = '';
   saveDoc(key, plan, 'メモを追加しました');
 };
+C['minutes-add'] = () => {
+  const url = $('min-url').value.trim();
+  if (!/^https?:\/\/\S+$/i.test(url)) { toast('議事録のURLを https:// から入れてください', { err: true }); $('min-url').focus(); return; }
+  const key = planKey();
+  const plan = Object.assign({ budget: 0, memos: [] }, clone(getDoc(key) || {}));
+  plan.minutes = (plan.minutes || []).concat({ id: uid(), date: today(), title: $('min-title').value.trim(), url, by: session.user.name });
+  $('min-url').value = ''; $('min-title').value = '';
+  saveDoc(key, plan, '議事録を追加しました');
+};
+C['minutes-del'] = el => {
+  if (!confirm('この議事録のリンクを削除しますか?')) return;
+  const key = planKey();
+  const plan = clone(getDoc(key) || {});
+  plan.minutes = (plan.minutes || []).filter(x => x.id !== el.dataset.id);
+  saveDoc(key, plan);
+};
 C['memo-del'] = el => {
   if (!confirm('このメモを削除しますか?')) return;
   const key = planKey();
@@ -2188,6 +2323,7 @@ C['cost-new'] = el => {
   const sid = el.dataset.store != null ? el.dataset.store : (state.tab === 'actual' ? state.uStore : '');
   openCostModal({ target: el.dataset.ev ? 'event' : el.dataset.target || '', eventId: el.dataset.ev || '', storeId: sid });
 };
+C['export-excel'] = () => exportBudgetExcel();
 C['cost-edit'] = el => {
   if (el.dataset.kind === 'other') {
     const c = getDoc('costs/' + el.dataset.x); if (!c) return;
