@@ -257,31 +257,39 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .modal .rs-in input{font-size:20px;font-weight:700;padding:6px 10px}
 .rs-in em{font-style:normal;color:var(--muted)}
 input.money{text-align:right}
-/* 予算対比グラフ */
-.bc{display:flex;flex-direction:column;gap:2px}
-.bc-block{font-size:12px;font-weight:700;color:var(--muted);margin:8px 0 2px}
-.bc-row{display:grid;grid-template-columns:110px minmax(0,1fr) 250px;gap:12px;align-items:center;padding:5px 6px;border-radius:6px;cursor:pointer}
-.bc-row:hover,.bc-row:focus{background:#f6f8fb;outline:none}
-.bc-row.sel{background:var(--accent-weak)}
-.bc-row.bc-total{border-top:1px solid var(--line);margin-top:6px;padding-top:9px;cursor:default;font-weight:700}
-.bc-name{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bc-bar{position:relative;height:18px}
-.bc-bar-none{height:0}
-.bc-budget{position:absolute;left:0;top:0;bottom:0;background:var(--line2);border-radius:0 4px 4px 0}
-.bc-fill{position:absolute;left:0;top:3px;bottom:3px;display:flex;gap:2px;min-width:0}
-.bc-act{background:var(--bar);border-radius:0 4px 4px 0;min-width:0}
-.bc-fill .bc-act:not(:last-child){border-radius:0}
-.bc-plan{background:repeating-linear-gradient(45deg,#c9daf2 0 5px,#e6eefa 5px 10px);border-radius:0 4px 4px 0;min-width:0}
-.bc-mark{position:absolute;top:-2px;bottom:-2px;width:2px;margin-left:-1px;background:#4b5563;border-radius:1px}
-.bc-val{display:flex;gap:6px;align-items:baseline;justify-content:flex-end;font-size:13px;white-space:nowrap}
-.bc-val .muted{font-size:12px}
-.bc-pct{font-size:12px;color:var(--text);min-width:46px;text-align:right}
-.bc-over{font-size:12px;color:var(--danger);font-weight:700}
-.bc-key-track{display:inline-block;width:16px;height:9px;background:var(--line2);border-radius:2px;margin-right:6px;vertical-align:-1px}
-.bc-key-mark{display:inline-block;width:2px;height:11px;background:#4b5563;margin-right:6px;vertical-align:-2px}
+/* 予算管理のグラフ(表+消化率の横棒) */
+.bh-kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.bh-kpi>div{background:var(--light,#f4f6fa);background:#f7f9fc;border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:2px}
+.bh-kpi .lbl{font-size:12px;color:var(--muted)}
+.bh-kpi b{font-size:24px;line-height:1.3}
+.bh-big .rb{grid-template-columns:minmax(0,1fr) 70px}
+.bh-big .rb-track{height:22px}
+.bh-big .rb-pct{font-size:18px}
+.bt{display:flex;flex-direction:column}
+.bt-row{display:grid;grid-template-columns:minmax(150px,1.3fr) 120px 170px 130px minmax(200px,1.6fr);gap:12px;align-items:center;padding:9px 8px;border-bottom:1px solid var(--line2);font-size:14px}
+.bt-row[data-act]{cursor:pointer}
+.bt-row[data-act]:hover,.bt-row:focus{background:#f6f8fb;outline:none}
+.bt-head{font-size:12px;color:var(--muted);font-weight:600;background:#f7f8fa;border-bottom:1px solid var(--line);padding:7px 8px}
+.bt-total{font-weight:700;background:#f7f8fa}
+.bt-group{font-size:12px;font-weight:700;color:var(--muted);padding:10px 8px 4px}
+.bt-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rb{display:grid;grid-template-columns:minmax(0,1fr) 56px;gap:8px;align-items:center}
+.rb-track{position:relative;height:14px;background:var(--line2);border-radius:4px}
+.rb-act,.rb-plan,.rb-over{position:absolute;top:0;bottom:0}
+.rb-act{left:0;background:#5a86c8;border-radius:4px 0 0 4px}
+.rb-plan{background:#b9cfee}
+.rb-over{background:#e48c85;border-radius:0 4px 4px 0}
+.rb-100{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;background:#1f2933;border-radius:1px}
+.rb-pct{text-align:right;font-size:14px}
+.rb-key-act{background:#5a86c8}.rb-key-plan{background:#b9cfee}.rb-key-over{background:#e48c85}
+.rb-key-100{display:inline-block;width:2px;height:12px;background:#1f2933;margin-right:6px;vertical-align:-2px}
+.it{display:flex;flex-direction:column}
+.it-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(200px,2.4fr) 170px;gap:12px;align-items:center;padding:7px 8px;border-bottom:1px solid var(--line2);font-size:14px}
+.it-bar{height:14px;background:var(--line2);border-radius:4px;overflow:hidden}
+.it-bar div{height:100%;background:#5a86c8;border-radius:0 4px 4px 0}
 .chart-tip{position:fixed;z-index:70;background:#fff;border:1px solid var(--line);box-shadow:0 4px 16px rgba(0,0,0,.12);border-radius:8px;padding:8px 10px;font-size:12px;pointer-events:none;white-space:pre;line-height:1.6}
 .chart-tip .tt-head{font-weight:700;margin-bottom:2px}
-@media (max-width:900px){.bc-row{grid-template-columns:80px minmax(0,1fr)}.bc-val{grid-column:1/-1;justify-content:flex-start}}
+@media (max-width:900px){.bh-kpi{grid-template-columns:1fr 1fr}.bt-row{grid-template-columns:1fr 1fr;row-gap:4px}.bt-row>.rb{grid-column:1/-1}.bt-head{display:none}.it-row{grid-template-columns:1fr 1fr}.it-row .it-bar{grid-column:1/-1}}
 .cx-lines{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
 .cx-line{display:grid;grid-template-columns:minmax(0,1fr) 170px 160px 140px 24px;gap:8px;align-items:center}
 .cx-line.cx-head .lbl{font-size:12px;font-weight:600;color:var(--muted)}
@@ -1878,107 +1886,145 @@ function chartQuarters() {
   if (p.mode === 'quarter') return [[p.fy, p.q]];
   const d = p.ym + '-01'; return [[fyOf(d), qOf(d)]];
 }
+/** 店舗(複数可)× 四半期の 予算・実績・配分予算。着地見込み = 実績 + 配分予算 */
 function statOver(ids, qs) {
   const t = { budget: 0, actual: 0, planned: 0 };
   ids.forEach(id => qs.forEach(([fy, q]) => { const x = qStat(fy, q, id); t.budget += x.budget; t.actual += x.actual; t.planned += x.planned; }));
   t.used = t.actual + t.planned;
   return t;
 }
-/** 予算・実績・配分予算の横棒1本(scale はグラフ全体の最大値) */
-function budgetBar(t, scale) {
-  const w = v => Math.max(0, v / scale * 100).toFixed(2) + '%';
-  return `<div class="bc-bar">
-    ${t.budget ? `<div class="bc-budget" style="width:${w(t.budget)}"></div>` : ''}
-    <div class="bc-fill" style="width:${w(t.used)}">
-      <div class="bc-act" style="flex:${t.actual} 0 0"></div>${t.planned ? `<div class="bc-plan" style="flex:${t.planned} 0 0"></div>` : ''}
+/**
+ * 消化率の横棒。どの行も「予算 = 100%」が同じ位置(棒の幅の 80%)。
+ * 濃い青 = 実績、薄い青 = 配分予算(まだ費用が入っていないイベント)、赤 = 予算を超えた分。
+ */
+const BAR_MAX = 1.25;
+function rateBar(t) {
+  if (!t.budget) return `<div class="rb"><span class="muted small-text">予算未設定</span></div>`;
+  const pos = v => Math.min(v / t.budget, BAR_MAX) / BAR_MAX * 100;
+  const a = pos(t.actual), u = pos(t.used), b = pos(t.budget);
+  const over = t.used > t.budget;
+  return `<div class="rb">
+    <div class="rb-track">
+      <div class="rb-act" style="width:${Math.min(a, b)}%"></div>
+      ${u > a ? `<div class="rb-plan" style="left:${a}%;width:${Math.max(0, Math.min(u, b) - a)}%"></div>` : ''}
+      ${over ? `<div class="rb-over" style="left:${b}%;width:${u - b}%"></div>` : ''}
+      <i class="rb-100" style="left:${b}%"></i>
     </div>
-    ${t.budget ? `<i class="bc-mark" style="left:${w(t.budget)}"></i>` : ''}
+    <b class="rb-pct ${over ? 'red' : ''}">${pct(t.used, t.budget)}</b>
   </div>`;
 }
-function budgetTip(name, t) {
-  return [name, `着地見込み ${yen(t.used)}`, `  実績 ${yen(t.actual)}`, `  配分予算 ${yen(t.planned)}`,
-    `予算 ${t.budget ? yen(t.budget) : '未設定'}`, t.budget ? `消化率(見込み) ${pct(t.used, t.budget)}` : ''].filter(Boolean).join('\n');
+/** 表の1行:名前 / 予算 / 着地見込み(実績・配分) / 残り / 消化率 */
+function budgetRow(name, t, opt = {}) {
+  const rest = t.budget - t.used;
+  const tip = [name, `予算 ${t.budget ? yen(t.budget) : '未設定'}`, `着地見込み ${yen(t.used)}`, `  実績 ${yen(t.actual)}`, `  配分予算 ${yen(t.planned)}`,
+    t.budget ? `残り ${yen(rest)}` : ''].filter(Boolean).join('\n');
+  return `<div class="bt-row ${opt.cls || ''}" tabindex="0" ${opt.act ? `data-act="bc-store" data-v="${opt.act}"` : ''} data-tip="${esc(tip)}">
+    <div class="bt-name">${opt.dot ? '<i class="bt-dot"></i>' : ''}${esc(name)}</div>
+    <div class="num">${t.budget ? yen(t.budget) : '<span class="muted">—</span>'}</div>
+    <div class="num"><b>${yen(t.used)}</b>${t.planned ? `<div class="muted small-text">実績 ${yen(t.actual)} ＋ 配分 ${yen(t.planned)}</div>` : ''}</div>
+    <div class="num ${t.budget && rest < 0 ? 'red' : ''}">${t.budget ? (rest < 0 ? `⚠ ${yen(rest)}` : yen(rest)) : '<span class="muted">—</span>'}</div>
+    ${rateBar(t)}
+  </div>`;
 }
-function budgetVal(t) {
-  if (!t.budget) return `<b>${yen(t.used)}</b><span class="muted">予算未設定</span>`;
-  const over = t.used > t.budget;
-  return `<b>${yen(t.used)}</b><span class="muted">/ ${yen(t.budget)}</span>
-    ${over ? `<span class="bc-over">⚠ 超過 ${yen(t.used - t.budget)}</span>` : `<span class="bc-pct">${pct(t.used, t.budget)}</span>`}`;
+function budgetTable(title, sub, rows, opt = {}) {
+  return `<div class="panel">
+    <div class="view-head" style="margin-bottom:8px"><h3 style="margin:0">${title}</h3><span class="muted small-text">${sub || ''}</span></div>
+    <div class="bt">
+      <div class="bt-row bt-head"><div>${opt.nameLabel || '名前'}</div><div class="num">予算</div><div class="num">着地見込み</div><div class="num">残り</div><div>消化率(予算 = 縦線)</div></div>
+      ${rows}
+    </div>
+    ${opt.note ? `<p class="muted small-text" style="margin:8px 0 0">${opt.note}</p>` : ''}
+  </div>`;
 }
 function viewBudgetChart() {
   const qs = chartQuarters();
   const sid = state.bStore;
   const range = [quarterRange(...qs[0])[0], quarterRange(...qs[qs.length - 1])[1]];
-  const all = stores().map(x => x.id);
-  const total = statOver(all, qs);
-  const focus = sid === 'all' ? total : statOver(scopeIds(sid), qs);
-  const inSel = id => sid !== 'all' && scopeIds(sid).includes(id);
-  const rows = storesOrdered().map(st => ({ st, t: statOver([st.id], qs) }));
-  const scale = Math.max(1, ...rows.map(r => Math.max(r.t.budget, r.t.used)));
-  const bl = blocks();
-  const groups = bl.map(b => ({ b, rows: rows.filter(r => r.st.blockId === b.id) })).filter(g => g.rows.length);
-  const blockRows = groups.map(g => ({ b: g.b, t: statOver(g.rows.map(r => r.st.id), qs) }));
-  const bScale = Math.max(1, ...blockRows.map(r => Math.max(r.t.budget, r.t.used)));
-  const loose = rows.filter(r => !bl.some(b => b.id === r.st.blockId));
-  if (loose.length) groups.push({ b: { name: '(ブロック未設定)' }, rows: loose });
+  const periodLabel = qs.length === 4 ? kiLabel(qs[0][0]) + ' 通期' : `${kiLabel(qs[0][0])} ${Q_LABEL[qs[0][1]]}`;
+  const ids = scopeIds(sid);
+  const focus = statOver(ids, qs);
+  const name = sid === 'all' ? '全店' : storeName(sid);
+  const isStore = sid !== 'all' && !blockById(sid); // 店舗または合算
   const B = focus.budget, over = B > 0 && focus.used > B;
-  const meterScale = Math.max(B, focus.used) || 1;
-  // 項目ごと(選んだ店舗/全店)
+
+  // ---- いちばん上:選んだ範囲の合計
+  const hero = `<div class="panel">
+    <div class="view-head" style="margin-bottom:10px"><h3 style="margin:0">${esc(name)} の予算と着地見込み</h3><span class="muted small-text">${esc(periodLabel)}</span></div>
+    <div class="bh-kpi">
+      <div><span class="lbl">予算</span><b>${B ? yen(B) : '未設定'}</b></div>
+      <div><span class="lbl">着地見込み</span><b class="${over ? 'red' : ''}">${yen(focus.used)}</b><span class="muted small-text">実績 ${yen(focus.actual)} ＋ 配分予算 ${yen(focus.planned)}</span></div>
+      <div><span class="lbl">残り</span><b class="${over ? 'red' : ''}">${B ? (over ? '⚠ ' : '') + yen(B - focus.used) : '—'}</b></div>
+      <div><span class="lbl">消化率</span><b class="${over ? 'red' : ''}">${pct(focus.used, B)}</b><span class="muted small-text">実績だけなら ${pct(focus.actual, B)}</span></div>
+    </div>
+    <div class="bh-big">${rateBar(focus)}</div>
+    <div class="cum-legend small-text muted"><span><i class="dot rb-key-act"></i>実績(入力した費用)</span><span><i class="dot rb-key-plan"></i>配分予算(まだ費用が入っていないイベント)</span><span><i class="dot rb-key-over"></i>予算を超えた分</span><span><i class="rb-key-100"></i>予算(100%)</span></div>
+  </div>`;
+
+  let body = '';
+  if (sid === 'all') {
+    const bl = blocks();
+    const brows = bl.map(b => ({ b, ids: stores().filter(s => s.blockId === b.id).map(s => s.id) })).filter(x => x.ids.length);
+    body += budgetTable('ブロックごと', `${esc(periodLabel)} / 店舗の積み上げ`, brows.map(x => budgetRow(x.b.name, statOver(x.ids, qs), { act: x.b.id })).join(''),
+      { nameLabel: 'ブロック', note: 'ブロックをクリックすると、そのブロックだけの表示になります。' });
+    body += budgetTable('店舗ごと', esc(periodLabel), brows.map(x => `<div class="bt-group">${esc(x.b.name)}</div>` +
+      x.ids.map(id => budgetRow(storeName(id), statOver([id], qs), { act: id })).join('')).join(''),
+      { nameLabel: '店舗', note: '店舗をクリックすると、その店舗だけの表示になります。' });
+  } else if (!isStore) {
+    body += budgetTable(`${esc(name)} の店舗ごと`, esc(periodLabel), ids.map(id => budgetRow(storeName(id), statOver([id], qs), { act: id })).join('') +
+      budgetRow(`${name} 合計`, focus, { cls: 'bt-total' }), { nameLabel: '店舗', note: '店舗をクリックすると、その店舗だけの表示になります。' });
+  } else {
+    if (qs.length > 1) {
+      body += budgetTable('四半期ごと', esc(periodLabel), qs.map(([fy, q]) => budgetRow(Q_LABEL[q], statOver(ids, [[fy, q]]))).join('') +
+        budgetRow('通期 合計', focus, { cls: 'bt-total' }), { nameLabel: '四半期' });
+    }
+    // イベントごと:配分した予算と、入力した費用(実績)
+    const evs = eventsIn(range, sid);
+    const others = sum(othersIn(range, sid), c => num(c.amount));
+    const erows = evs.map(e => {
+      const a = shareOf(e, sid), u = usedShare(e, sid);
+      return { e, t: { budget: a, actual: u, planned: 0, used: u } };
+    });
+    body += `<div class="panel">
+      <div class="view-head" style="margin-bottom:8px"><h3 style="margin:0">イベントごとの予算と使用金額</h3><span class="muted small-text">${esc(periodLabel)}</span></div>
+      ${evs.length ? `<div class="bt">
+        <div class="bt-row bt-head"><div>イベント</div><div class="num">配分した予算</div><div class="num">使用金額(実績)</div><div class="num">残り</div><div>消化率(予算 = 縦線)</div></div>
+        ${erows.map(r => budgetRow(`${md(r.e.start)} ${r.e.name}`, r.t)).join('')}
+        <div class="bt-row bt-total"><div class="bt-name">イベント 合計</div><div class="num">${yen(sum(erows, r => r.t.budget))}</div><div class="num"><b>${yen(sum(erows, r => r.t.used))}</b></div>
+          <div class="num">${yen(sum(erows, r => r.t.budget - r.t.used))}</div><div></div></div>
+      </div>` : '<div class="muted small-text">この期間のイベントはありません</div>'}
+      <p class="muted small-text" style="margin:8px 0 0">イベント以外の費用:<b>${yen(others)}</b>(予算は四半期予算から使います)。
+        上の着地見込み = 実績(イベントの費用 ${yen(focus.actual - others)} ＋ イベント以外 ${yen(others)})＋ 配分予算 ${yen(focus.planned)}</p>
+    </div>`;
+  }
+
+  // ---- 項目ごと(実績)
   const byItem = {};
   eventsIn(range, sid).forEach(e => (e.expenses || []).filter(x => expMine(e, x, sid)).forEach(x => {
     const k = x.costItemId || ''; byItem[k] = (byItem[k] || 0) + expShare(e, x, sid);
   }));
   othersIn(range, sid).forEach(c => { const k = c.costItemId || ''; byItem[k] = (byItem[k] || 0) + num(c.amount); });
   const items = Object.keys(byItem).map(k => ({ k, v: byItem[k] })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
-  const itemMax = Math.max(1, ...items.map(x => x.v));
-  const periodLabel = qs.length === 4 ? kiLabel(qs[0][0]) + ' 通期' : `${kiLabel(qs[0][0])} ${Q_LABEL[qs[0][1]]}`;
+  const itemTotal = sum(items, x => x.v), itemMax = Math.max(1, ...items.map(x => x.v));
+  body += `<div class="panel">
+    <div class="view-head" style="margin-bottom:8px"><h3 style="margin:0">項目ごとの使用金額(実績)</h3><span class="muted small-text">${esc(name)} / ${esc(periodLabel)}</span></div>
+    ${items.length ? `<div class="it">${items.map(x => `<div class="it-row" tabindex="0" data-tip="${esc(costName(x.k) + '\n' + yen(x.v) + '(' + pct(x.v, itemTotal) + ')')}">
+      <div class="bt-name">${esc(x.k ? costName(x.k) : '(項目なし)')}</div>
+      <div class="it-bar"><div style="width:${(x.v / itemMax * 100).toFixed(1)}%"></div></div>
+      <div class="num"><b>${yen(x.v)}</b> <span class="muted small-text">${pct(x.v, itemTotal)}</span></div></div>`).join('')}
+      <div class="it-row bt-total"><div class="bt-name">合計</div><div></div><div class="num"><b>${yen(itemTotal)}</b></div></div></div>`
+      : '<div class="muted small-text">この期間の費用はまだありません</div>'}
+  </div>`;
+
   return `
   <div class="view-head">
     ${budgetTabs()}
     ${periodHtml()}
     ${storeSelect('b-store', 'b-store', sid, true, null, true, true)}
+    ${sid !== 'all' ? '<button class="small" data-act="bc-all">全店に戻る</button>' : ''}
   </div>
   ${state.period.mode === 'month' ? '<p class="muted small-text" style="margin-top:-4px">グラフは四半期単位で集計します(選んだ月を含む四半期を表示しています)。</p>' : ''}
-  <div class="panel">
-    <h3>${sid === 'all' ? '全店' : esc(storeName(sid))}の予算対比 <span class="muted small-text" style="font-weight:400">${esc(periodLabel)}</span></h3>
-    <div class="cards" style="margin-bottom:10px">
-      <div class="card"><div class="lbl">予算</div><div class="val">${B ? yen(B) : '未設定'}</div></div>
-      <div class="card"><div class="lbl">着地見込み(実績＋配分予算)</div><div class="val ${over ? 'neg' : ''}">${yen(focus.used)}</div>
-        <div class="muted small-text">実績 ${yen(focus.actual)} / 配分予算 ${yen(focus.planned)}</div></div>
-      <div class="card"><div class="lbl">残り(見込み)</div><div class="val ${over ? 'neg' : ''}">${B ? yen(B - focus.used) : '—'}</div></div>
-      <div class="card"><div class="lbl">消化率(見込み)</div><div class="val ${over ? 'neg' : ''}">${pct(focus.used, B)}</div>
-        <div class="muted small-text">実績だけなら ${pct(focus.actual, B)}</div></div>
-    </div>
-    ${budgetBar(focus, meterScale)}
-    <div class="cum-legend small-text muted"><span><i class="dot dot-alloc"></i>実績</span><span><i class="dot cum-dot-plan"></i>配分予算(まだ費用が入っていないイベント)</span><span><i class="bc-key-mark"></i>予算</span></div>
-  </div>
-  <div class="panel">
-    <div class="view-head" style="margin-bottom:6px"><h3 style="margin:0">ブロックごとの予算対比</h3><span class="muted small-text">${esc(periodLabel)} / 各ブロックの店舗の積み上げ</span></div>
-    <div class="bc">
-      ${blockRows.map(r => `<div class="bc-row ${r.b.id && r.b.id === sid ? 'sel' : ''}" tabindex="0" ${r.b.id ? `data-act="bc-store" data-v="${r.b.id}"` : ''} data-tip="${esc(budgetTip(r.b.name, r.t))}">
-        <div class="bc-name"><b>${esc(r.b.name)}</b></div>${budgetBar(r.t, bScale)}<div class="bc-val">${budgetVal(r.t)}</div></div>`).join('')}
-    </div>
-  </div>
-  <div class="panel">
-    <div class="view-head" style="margin-bottom:6px"><h3 style="margin:0">店舗ごとの予算対比</h3><span class="muted small-text">${esc(periodLabel)}</span></div>
-    <div class="cum-legend small-text muted" style="margin:0 0 10px"><span><i class="dot dot-alloc"></i>実績</span><span><i class="dot cum-dot-plan"></i>配分予算</span><span><i class="bc-key-track"></i>予算の長さ</span><span><i class="bc-key-mark"></i>予算の位置</span></div>
-    <div class="bc">
-      ${groups.map(g => `<div class="bc-block">${esc(g.b.name)}</div>
-        ${g.rows.map(r => `<div class="bc-row ${inSel(r.st.id) ? 'sel' : ''}" tabindex="0" data-act="bc-store" data-v="${r.st.id}" data-tip="${esc(budgetTip(r.st.name, r.t))}">
-          <div class="bc-name">${esc(r.st.name)}</div>${budgetBar(r.t, scale)}<div class="bc-val">${budgetVal(r.t)}</div></div>`).join('')}`).join('')}
-      <div class="bc-row bc-total" tabindex="0" data-tip="${esc(budgetTip('全店合計', total))}">
-        <div class="bc-name">全店合計</div><div class="bc-bar bc-bar-none"></div><div class="bc-val">${budgetVal(total)}</div></div>
-    </div>
-    <p class="muted small-text" style="margin:8px 0 0">棒にマウスを乗せると内訳が出ます。店舗やブロックをクリックすると、上の数字がそこに切り替わります(もう一度押すと全店)。着地見込みは「年度の累計」と同じ数え方です(終わった四半期は実績、今と先はイベントごとに費用があれば実績・なければ配分予算)。</p>
-  </div>
-  <div class="panel">
-    <div class="view-head" style="margin-bottom:6px"><h3 style="margin:0">項目ごとの使用金額(実績)</h3><span class="muted small-text">${sid === 'all' ? '全店' : esc(storeName(sid))} / ${esc(periodLabel)}</span></div>
-    ${items.length ? `<div class="bc">${items.map(x => `<div class="bc-row" tabindex="0" data-tip="${esc(costName(x.k) + '\n' + yen(x.v))}">
-      <div class="bc-name">${esc(x.k ? costName(x.k) : '(項目なし)')}</div>
-      <div class="bc-bar"><div class="bc-fill" style="width:${(x.v / itemMax * 100).toFixed(2)}%"><div class="bc-act" style="flex:1 0 0"></div></div></div>
-      <div class="bc-val"><b>${yen(x.v)}</b><span class="muted">${pct(x.v, focus.actual)}</span></div></div>`).join('')}</div>`
-      : '<div class="muted small-text">この期間の費用はまだありません</div>'}
-  </div>`;
+  ${hero}${body}
+  <p class="muted small-text">着地見込み = 実績 ＋ 配分予算。終わった四半期は実績だけ、今と先の四半期はイベントごとに「費用が入っていれば実績、まだなら配分した予算」で数えます(イベント以外の費用は実績)。行にマウスを乗せると内訳が出ます。</p>`;
 }
 
 // ---------------------------------------------------------------- 分析シート
@@ -2630,6 +2676,7 @@ function linkPeriod(fy, q) {
 function stepQuarter(fy, q, d) { const n = fy * 4 + q - 1 + d; return [Math.floor(n / 4), n % 4 + 1]; }
 CH['b-store'] = el => go(() => { state.bStore = el.value; });
 C['b-view'] = el => go(() => { state.bView = el.dataset.v; });
+C['bc-all'] = () => go(() => { state.bStore = 'all'; });
 C['bc-store'] = el => go(() => { state.bStore = state.bStore === el.dataset.v ? 'all' : el.dataset.v; }); // もう一度押すと全店に戻る
 /**
  * 店舗の選択を連動させる:費用実績・反響実績・四半期計画・分析シート(カレンダーと予算管理は連動しない)。
