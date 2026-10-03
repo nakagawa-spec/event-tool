@@ -231,6 +231,9 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .rs-in{display:flex;align-items:center;gap:6px}
 .modal .rs-in input{font-size:20px;font-weight:700;padding:6px 10px}
 .rs-in em{font-style:normal;color:var(--muted)}
+tr.month-row td{background:#eef3fb;font-weight:700;font-size:13px;padding:5px 9px}
+.note-cell{max-width:260px;white-space:pre-wrap}
+.q-label{min-width:170px}
 
 @media (max-width:900px){
   .layout,.layout.todo-closed{grid-template-columns:minmax(0,1fr);padding:12px}
@@ -261,7 +264,7 @@ const EXHIBIT_TYPES = ['大型出展イベント', '出展イベント'];
 const BIG = '大型出展イベント';
 const ROLE_LABEL = { admin: '管理者', manager: '店長', staff: 'スタッフ' };
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
-const TABS = [['calendar', 'カレンダー'], ['actual', '実績入力'], ['plan', '四半期計画'], ['effect', '効果検証'], ['budget', '予算管理']];
+const TABS = [['calendar', 'カレンダー'], ['actual', '費用実績'], ['response', '反響実績'], ['plan', '四半期計画'], ['effect', '効果検証'], ['budget', '予算管理']];
 
 const DEFAULT_STORES = {
   blocks: [
@@ -293,7 +296,7 @@ const DEFAULT_COST_ITEMS = {
 const TODO_DEFS = [
   { key: 'ad', label: '広告・イベントページ作成', due: e => addDays(e.start, -21) },
   { key: 'hp', label: 'HP UP・広告開始', due: e => addDays(e.start, -14) },
-  { key: 'result', label: '来場実績・成果を入力', due: e => addDays(evEnd(e), 1) }
+  { key: 'result', label: '反響実績を入力', due: e => addDays(evEnd(e), 1) }
 ];
 
 // ====================================================================== 小さな道具
@@ -690,12 +693,12 @@ const state = Object.assign({
   plan: { fy: fyOf(now0), q: qOf(now0), storeId: '' },
   period: { mode: 'quarter', ym: now0.slice(0, 7), fy: fyOf(now0), q: qOf(now0) },
   bStore: 'all', eStore: 'all', todoClosed: false, showDone: false,
-  uStore: '', uYm: now0.slice(0, 7)
+  uStore: '', uFy: fyOf(now0), uQ: qOf(now0)
 }, lsJSON('evt-ui', {}));
 state.users = null; state.accQ = ''; state.accRole = ''; state.accConfirm = null; state.open = {};
 function saveUi() {
-  const { tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uYm } = state;
-  lsSet('evt-ui', JSON.stringify({ tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uYm }));
+  const { tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uFy, uQ } = state;
+  lsSet('evt-ui', JSON.stringify({ tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uFy, uQ }));
 }
 const isHidden = sid => state.hidden.includes(sid);
 function visibleByFilter(e) { return isAll(e) || (e.stores || []).some(id => !isHidden(id)) || !(e.stores || []).some(storeById); }
@@ -782,6 +785,7 @@ function mainHtml() {
   if (state.tab === 'accounts' && session.user.role !== 'admin') state.tab = 'calendar';
   switch (state.tab) {
     case 'actual': return viewActual();
+    case 'response': return viewResponse();
     case 'plan': return viewPlan();
     case 'effect': return viewEffect();
     case 'budget': return viewBudget();
@@ -1043,69 +1047,67 @@ function viewPlan() {
   </div>`;
 }
 
-// ---------------------------------------------------------------- 実績入力(各店の事務向け:来場実績と費用)
-function viewActual() {
-  if (state.uStore && !storeById(state.uStore)) state.uStore = '';
+// ---------------------------------------------------------------- 費用実績・反響実績(各店の事務向け。四半期単位で表示)
+function uRange() { return quarterRange(state.uFy, state.uQ); }
+function uHead(extra) {
   const sid = state.uStore;
-  const [y, m] = state.uYm.split('-').map(Number);
-  const td = today();
-  const head = `
+  const [s, e] = uRange();
+  return `
   <div class="view-head">
     <label class="store-pick"><span>店舗</span>${storeSelect('u-store', 'u-store', sid, false, '店舗を選んでください')}</label>
     <div class="month-nav">
-      <button data-act="u-month-step" data-v="-1" aria-label="前の月">‹</button>
-      <strong>${y}年${m}月</strong>
-      <button data-act="u-month-step" data-v="1" aria-label="次の月">›</button>
-      <button class="small" data-act="u-month-today">今月</button>
+      <button data-act="u-q-step" data-v="-1" aria-label="前の四半期">‹</button>
+      <strong class="q-label">${state.uFy}年度 ${Q_LABEL[state.uQ]}</strong>
+      <button data-act="u-q-step" data-v="1" aria-label="次の四半期">›</button>
+      <button class="small" data-act="u-q-today">今の四半期</button>
     </div>
+    <span class="muted small-text">${ymd(s)}〜${ymd(e)}</span>
+    <div class="grow"></div>
+    ${sid ? extra || '' : ''}
   </div>`;
-  if (!sid) return head + `<div class="panel empty">はじめに、上の「店舗」であなたの店舗を選んでください。<br><span class="small-text">選んだ店舗はこのパソコン(ブラウザ)に記憶され、次回からは自動で表示されます。</span></div>`;
+}
+const U_NO_STORE = `<div class="panel empty">はじめに、上の「店舗」であなたの店舗を選んでください。<br><span class="small-text">選んだ店舗はこのパソコン(ブラウザ)に記憶され、次回からは自動で表示されます。</span></div>`;
+function uCheckStore() { if (state.uStore && !storeById(state.uStore)) state.uStore = ''; return state.uStore; }
+function evCell(e) {
+  return `<span class="typetag ${typeClass(e)}"></span>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}${isSingle(e) ? '' : ' / ' + esc(storeLabel(e))}</span>`;
+}
 
-  const range = monthBounds(y, m);
-  const mine = evList().filter(e => e.start && participants(e).includes(sid));
-  const evs = mine.filter(e => e.start <= range[1] && evEnd(e) >= range[0]);
-  // 月に関係なく、終わったのに実績が入っていないイベント(直近4か月)
-  const pending = mine.filter(e => e.start <= td && !hasResult(e) && e.start >= addDays(td, -120));
-  const resultBtn = (e, cls) => e.start > td ? '<span class="muted small-text">開催後に入力</span>'
-    : hasResult(e) ? `<button class="small" data-act="result-event" data-id="${e.id}">直す</button>`
-      : `<button class="primary small ${cls || ''}" data-act="result-event" data-id="${e.id}">${category(e) === 'visit' ? '来場実績' : '実績'}を入力</button>`;
-  const evCell = e => `<span class="typetag ${typeClass(e)}"></span>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}${isSingle(e) ? '' : ' / ' + esc(storeLabel(e))}</span>`;
-
-  const pendingHtml = pending.length ? `<div class="panel todo-panel">
-    <h3>来場実績がまだ入っていないイベント(${pending.length}件)</h3>
-    <div class="table-wrap"><table>
-      ${pending.map(e => `<tr><td class="nowrap">${dateRange(e)}</td><td>${evCell(e)}</td>
-        <td class="nowrap right">${resultBtn(e)}</td></tr>`).join('')}
-    </table></div></div>` : '';
-
-  const resultTable = evs.length ? `<div class="table-wrap"><table>
-      <tr><th>日付</th><th>イベント</th><th>状態</th><th>実績</th><th></th></tr>
-      ${evs.map(e => `<tr>
-        <td class="nowrap">${dateRange(e)}</td><td>${evCell(e)}</td><td>${resultBadge(e)}</td>
-        <td class="small-text">${resultSummary(e)}</td><td class="nowrap right">${resultBtn(e)}</td></tr>`).join('')}
-    </table></div>` : '<div class="muted small-text">この月にこの店舗のイベントはありません</div>';
-
+function viewActual() {
+  const sid = uCheckStore();
+  const head = uHead('<button class="primary big" data-act="cost-new">＋ 費用を入力</button>');
+  if (!sid) return head + U_NO_STORE;
+  const range = uRange();
   const rows = costRows(range, sid);
   const evAmt = sum(rows.filter(r => r.kind === 'event'), r => r.amt);
   const otAmt = sum(rows.filter(r => r.kind === 'other'), r => r.amt);
-  // この月が入っている四半期の予算の残り(四半期計画と同じ計算)
-  const fy = fyOf(range[0]), q = qOf(range[0]), qr = quarterRange(fy, q);
-  const qBudget = num((getDoc(`plans/${fy}-q${q}-${sid}`) || {}).budget);
-  const qUsed = sum(eventsIn(qr, sid), e => usedShare(e, sid)) + sum(othersIn(qr, sid), c => num(c.amount));
+  const used = evAmt + otAmt;
+  const budget = num((getDoc(`plans/${state.uFy}-q${state.uQ}-${sid}`) || {}).budget);
+  const evs = evList().filter(e => e.start && e.start >= range[0] && e.start <= range[1] && participants(e).includes(sid));
 
+  // 月ごとに見出し行と小計を入れる
+  let body = '', curM = '';
+  const monthTotal = mm => sum(rows.filter(r => r.date.slice(0, 7) === mm), r => r.amt);
+  rows.forEach(r => {
+    const mm = r.date.slice(0, 7);
+    if (mm !== curM) {
+      curM = mm;
+      body += `<tr class="month-row"><td colspan="5">${Number(mm.slice(5))}月</td><td class="num">${yen(monthTotal(mm))}</td><td colspan="2"></td></tr>`;
+    }
+    body += `<tr class="clickable" data-act="cost-edit" data-kind="${r.kind}" data-id="${r.e ? r.e.id : ''}" data-x="${r.x.id}">
+      <td class="nowrap">${r.e ? dateRange(r.e) : `${Number(mm.slice(5))}月分`}</td>
+      <td colspan="2">${r.e ? `<span class="typetag ${typeClass(r.e)}"></span>${esc(r.e.name)}${isSingle(r.e) ? '' : `<br><span class="muted small-text">${esc(storeLabel(r.e))}</span>`}` : '<span class="badge gray">イベント以外</span>'}</td>
+      <td class="nowrap">${esc(costName(r.x.costItemId))}</td><td>${esc(r.x.desc || '')}</td>
+      <td class="num">${yen(r.full)}${Math.round(r.amt) !== Math.round(r.full) ? `<br><span class="muted small-text">この店舗分 ${yen(r.amt)}</span>` : ''}</td>
+      <td class="small-text muted nowrap">${esc(r.by)}</td>
+      <td class="nowrap"><button class="link small">編集</button></td></tr>`;
+  });
   const list = rows.length ? `<div class="table-wrap"><table>
-      <tr><th>時期</th><th>何の費用</th><th>項目</th><th>内容</th><th class="num">金額</th><th>入力者</th><th></th></tr>
-      ${rows.map(r => `<tr class="clickable" data-act="cost-edit" data-kind="${r.kind}" data-id="${r.e ? r.e.id : ''}" data-x="${r.x.id}">
-        <td class="nowrap">${r.e ? dateRange(r.e) : `${Number(r.date.slice(5, 7))}月分`}</td>
-        <td>${r.e ? `<span class="typetag ${typeClass(r.e)}"></span>${esc(r.e.name)}${isSingle(r.e) ? '' : `<br><span class="muted small-text">${esc(storeLabel(r.e))}</span>`}` : '<span class="badge gray">イベント以外</span>'}</td>
-        <td class="nowrap">${esc(costName(r.x.costItemId))}</td><td>${esc(r.x.desc || '')}</td>
-        <td class="num">${yen(r.full)}${Math.round(r.amt) !== Math.round(r.full) ? `<br><span class="muted small-text">この店舗分 ${yen(r.amt)}</span>` : ''}</td>
-        <td class="small-text muted nowrap">${esc(r.by)}</td>
-        <td class="nowrap"><button class="link small">編集</button></td></tr>`).join('')}
-      <tr class="total"><td colspan="4">この店舗の合計</td><td class="num">${yen(evAmt + otAmt)}</td><td colspan="2"></td></tr>
+      <tr><th>時期</th><th colspan="2">何の費用</th><th>項目</th><th>内容</th><th class="num">金額</th><th>入力者</th><th></th></tr>
+      ${body}
+      <tr class="total"><td colspan="5">四半期の合計</td><td class="num">${yen(used)}</td><td colspan="2"></td></tr>
     </table></div>
     <p class="muted small-text">行をクリックすると、直したり削除したりできます。イベントの費用は開催月に入ります。合同・全店共通イベントの費用は、各店舗に割り振った予算の比率で按分した「この店舗分」を合計しています。</p>`
-    : `<div class="empty">${m}月の費用はまだ入力されていません。</div>`;
+    : `<div class="empty">この四半期の費用はまだ入力されていません。<br><button class="primary" style="margin-top:10px" data-act="cost-new">＋ 費用を入力</button></div>`;
 
   const evTable = evs.length ? `<div class="table-wrap"><table>
       <tr><th>日付</th><th>イベント</th><th>区分</th><th class="num">予算(この店舗分)</th><th class="num">使用金額(この店舗分)</th><th class="num">残り</th><th></th></tr>
@@ -1118,31 +1120,74 @@ function viewActual() {
           <td class="nowrap"><button class="small" data-act="cost-new" data-ev="${e.id}">＋ 費用</button></td></tr>`;
       }).join('')}
     </table></div>`
-    : '<div class="muted small-text">この月にこの店舗のイベントはありません</div>';
+    : '<div class="muted small-text">この四半期にこの店舗のイベントはありません</div>';
 
   return head + `
-  <div class="steps small-text"><b>この画面でやること</b>
-    <span>① 終わったイベントの「来場実績を入力」</span><span>② かかった費用を「＋ 費用を入力」</span></div>
-  ${pendingHtml}
-  <div class="panel">
-    <h3><span class="num-badge">1</span>イベントの来場実績(${m}月)</h3>
-    ${resultTable}
+  <div class="steps small-text"><b>入力のしかた</b>
+    <span>① 店舗と四半期を確認</span><span>② 「＋ 費用を入力」</span><span>③ 「イベントの費用」か「イベント以外の費用」を選ぶ</span><span>④ 項目・金額を入れて保存</span></div>
+  <div class="cards">
+    <div class="card"><div class="lbl">四半期の予算</div><div class="val">${budget ? yen(budget) : '<span class="muted" style="font-size:14px;font-weight:400">未設定(四半期計画で設定)</span>'}</div></div>
+    <div class="card"><div class="lbl">使った金額</div><div class="val ${budget && used > budget ? 'neg' : ''}">${yen(used)}</div>
+      <div class="muted small-text">イベント ${yen(evAmt)} / イベント以外 ${yen(otAmt)}</div></div>
+    <div class="card"><div class="lbl">予算の残り</div><div class="val ${budget && budget - used < 0 ? 'neg' : ''}">${budget ? yen(budget - used) : '—'}</div></div>
+    <div class="card"><div class="lbl">消化率</div><div class="val">${pct(used, budget)}</div></div>
   </div>
   <div class="panel">
-    <div class="view-head" style="margin-bottom:10px"><h3 style="margin:0"><span class="num-badge">2</span>${esc(storeName(sid))} の費用(${m}月)</h3><div class="grow"></div>
-      <button class="primary big" data-act="cost-new">＋ 費用を入力</button></div>
-    <div class="cards">
-      <div class="card"><div class="lbl">${m}月の費用合計</div><div class="val">${yen(evAmt + otAmt)}</div></div>
-      <div class="card"><div class="lbl">うち イベントの費用</div><div class="val">${yen(evAmt)}</div></div>
-      <div class="card"><div class="lbl">うち イベント以外の費用</div><div class="val">${yen(otAmt)}</div></div>
-      <div class="card"><div class="lbl">${Q_LABEL[q]}の予算の残り</div><div class="val ${qBudget && qBudget - qUsed < 0 ? 'neg' : ''}">${qBudget ? yen(qBudget - qUsed) : '<span class="muted" style="font-size:14px;font-weight:400">予算未設定</span>'}</div>
-        ${qBudget ? `<div class="muted small-text">予算 ${yen(qBudget)} / 使用 ${yen(qUsed)}</div>` : ''}</div>
-    </div>
+    <h3>${esc(storeName(sid))} の費用一覧</h3>
     ${list}
   </div>
   <div class="panel">
-    <h3>イベントごとの予算と使用金額(${m}月)</h3>
+    <h3>イベントごとの予算と使用金額</h3>
     ${evTable}
+  </div>`;
+}
+
+function viewResponse() {
+  const sid = uCheckStore();
+  const head = uHead();
+  if (!sid) return head + U_NO_STORE;
+  const td = today();
+  const range = uRange();
+  const mine = evList().filter(e => e.start && participants(e).includes(sid));
+  const evs = mine.filter(e => e.start >= range[0] && e.start <= range[1]);
+  // 四半期に関係なく、終わったのに実績が入っていないイベント(直近4か月)
+  const pending = mine.filter(e => e.start <= td && !hasResult(e) && e.start >= addDays(td, -120));
+  const btn = e => e.start > td ? '<span class="muted small-text">開催後に入力</span>'
+    : hasResult(e) ? `<button class="small" data-act="result-event" data-id="${e.id}">直す</button>`
+      : `<button class="primary small" data-act="result-event" data-id="${e.id}">入力する</button>`;
+  const done = evs.filter(hasResult);
+  const visits = done.filter(e => category(e) === 'visit'), exh = done.filter(e => category(e) === 'exhibit');
+  const tv = (list, f) => sum(list, e => num(e.result[f]));
+
+  const pendingHtml = pending.length ? `<div class="panel todo-panel">
+    <h3>反響実績がまだ入っていないイベント(${pending.length}件)</h3>
+    <div class="table-wrap"><table>
+      ${pending.map(e => `<tr><td class="nowrap">${dateRange(e)}</td><td>${evCell(e)}</td><td class="nowrap right">${btn(e)}</td></tr>`).join('')}
+    </table></div></div>` : '';
+
+  const table = evs.length ? `<div class="table-wrap"><table>
+      <tr><th>日付</th><th>イベント</th><th>状態</th><th>実績</th><th>備考</th><th></th></tr>
+      ${evs.map(e => `<tr>
+        <td class="nowrap">${dateRange(e)}</td><td>${evCell(e)}</td><td>${resultBadge(e)}</td>
+        <td class="small-text">${resultSummary(e)}</td><td class="small-text note-cell">${esc((e.result || {}).note || '')}</td>
+        <td class="nowrap right">${btn(e)}</td></tr>`).join('')}
+    </table></div>`
+    : '<div class="muted small-text">この四半期にこの店舗のイベントはありません</div>';
+
+  return head + `
+  <div class="steps small-text"><b>入力のしかた</b>
+    <span>① 終わったイベントの「入力する」を押す</span><span>② 組数・件数を入れて保存</span></div>
+  ${pendingHtml}
+  <div class="cards">
+    <div class="card"><div class="lbl">来場組数(来場型)</div><div class="val">${tv(visits, 'visits')}組</div><div class="muted small-text">うち新規 ${tv(visits, 'newVisits')}組</div></div>
+    <div class="card"><div class="lbl">次回アポ(来場型)</div><div class="val">${tv(visits, 'appts')}組</div></div>
+    <div class="card"><div class="lbl">名簿獲得(出展)</div><div class="val">${tv(exh, 'leads')}件</div><div class="muted small-text">アポ ${tv(exh, 'appts')}件</div></div>
+    <div class="card"><div class="lbl">入力状況</div><div class="val">${done.length} / ${evs.filter(e => e.start <= td).length}件</div><div class="muted small-text">終わったイベントのうち入力済み</div></div>
+  </div>
+  <div class="panel">
+    <h3>${esc(storeName(sid))} のイベントと反響実績</h3>
+    ${table}
+    <p class="muted small-text">合同・全店共通イベントの数はイベント全体の数です(どこか1店舗がまとめて入力します)。</p>
   </div>`;
 }
 function resultSummary(e) {
@@ -1265,9 +1310,9 @@ function viewEffect() {
   const vV = tv(visits, 'visits'), vN = tv(visits, 'newVisits'), vA = tv(visits, 'appts'), vU = sum(visits.filter(hasResult), uOf);
   const xL = tv(exh, 'leads'), xA = tv(exh, 'appts'), xU = sum(exh.filter(hasResult), uOf);
   const cell = (e, v) => hasResult(e) ? v : '';
-  const notes = e => {
-    const g = R(e).good, i = R(e).improve;
-    return [g ? `<b>良</b> ${esc(g)}` : '', i ? `<b>改</b> ${esc(i)}` : ''].filter(Boolean).join('<br>');
+  const notes = e => { // 備考(以前の「良かった点・改善点」が残っていればそれも表示)
+    const r = R(e);
+    return [r.note ? esc(r.note) : '', r.good ? `<b>良</b> ${esc(r.good)}` : '', r.improve ? `<b>改</b> ${esc(r.improve)}` : ''].filter(Boolean).join('<br>');
   };
   return `
   <div class="view-head">${periodHtml()}${storeSelect('e-store', 'e-store', sid, true)}</div>
@@ -1275,7 +1320,7 @@ function viewEffect() {
   <div class="panel">
     <h3>来場型イベント</h3>
     ${visits.length ? `<div class="table-wrap"><table>
-      <tr><th>日付</th><th>イベント名</th><th>店舗</th><th>状態</th><th class="num">来場組数</th><th class="num">うち新規</th><th class="num">新規率</th><th class="num">次回アポ</th><th class="num">アポ率</th><th class="num">使用金額</th><th class="num">1組あたり</th><th>良かった点・改善点</th></tr>
+      <tr><th>日付</th><th>イベント名</th><th>店舗</th><th>状態</th><th class="num">来場組数</th><th class="num">うち新規</th><th class="num">新規率</th><th class="num">次回アポ</th><th class="num">アポ率</th><th class="num">使用金額</th><th class="num">1組あたり</th><th>備考</th></tr>
       ${visits.map(e => { const r = R(e); return `<tr class="clickable" data-act="result-event" data-id="${e.id}">
         <td class="nowrap">${dateRange(e)}</td><td>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}</span></td><td>${esc(storeLabel(e))}</td><td>${resultBadge(e)}</td>
         <td class="num">${cell(e, num(r.visits))}</td><td class="num">${cell(e, num(r.newVisits))}</td><td class="num">${cell(e, pct(num(r.newVisits), num(r.visits)))}</td>
@@ -1287,7 +1332,7 @@ function viewEffect() {
   <div class="panel">
     <h3>出展イベント</h3>
     ${exh.length ? `<div class="table-wrap"><table>
-      <tr><th>日付</th><th>イベント名</th><th>店舗</th><th>状態</th><th class="num">名簿獲得数</th><th class="num">アポ数</th><th class="num">アポ率</th><th class="num">使用金額</th><th class="num">名簿1件あたり</th><th class="num">アポ1件あたり</th><th>良かった点・改善点</th></tr>
+      <tr><th>日付</th><th>イベント名</th><th>店舗</th><th>状態</th><th class="num">名簿獲得数</th><th class="num">アポ数</th><th class="num">アポ率</th><th class="num">使用金額</th><th class="num">名簿1件あたり</th><th class="num">アポ1件あたり</th><th>備考</th></tr>
       ${exh.map(e => { const r = R(e); return `<tr class="clickable" data-act="result-event" data-id="${e.id}">
         <td class="nowrap">${dateRange(e)}</td><td>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}</span></td><td>${esc(storeLabel(e))}</td><td>${resultBadge(e)}</td>
         <td class="num">${cell(e, num(r.leads))}</td><td class="num">${cell(e, num(r.appts))}</td><td class="num">${cell(e, pct(num(r.appts), num(r.leads)))}</td>
@@ -1496,13 +1541,12 @@ MODALS.result = m => {
         ${n('rs-appts', '次回アポ', '組', '次の打ち合わせ等の約束が取れた組数', r.appts)}</div>`
     : `<div class="rs-grid">${n('rs-leads', '名簿獲得数', '件', 'アンケート等でお名前・連絡先をいただいた件数', r.leads)}
         ${n('rs-appts', 'アポ数', '件', '来場・打ち合わせの約束が取れた件数', r.appts)}</div>`;
-  return `<h2>${visit ? '来場実績を入力' : '出展の実績を入力'}</h2>
+  return `<h2>反響実績を入力</h2>
     <div class="rs-ev"><span class="typetag ${typeClass(e)}"></span><b>${esc(e.name)}</b><br>
       <span class="muted small-text">${dateRange(e)} / ${esc(storeLabel(e))} / ${esc(e.type)}</span></div>
     ${isSingle(e) ? '' : '<div class="note">合同・全店共通のイベントです。<b>イベント全体の数</b>を入れてください(どこか1店舗がまとめて入力します)。</div>'}
     ${fields}
-    <label><span>良かった点(任意)</span><textarea id="rs-good" placeholder="例:若いご夫婦の来場が多かった">${esc(r.good || '')}</textarea></label>
-    <label><span>改善点(任意)</span><textarea id="rs-improve" placeholder="例:告知の開始が遅かった">${esc(r.improve || '')}</textarea></label>
+    <label><span>備考(任意)</span><textarea id="rs-note" placeholder="気づいたこと・連絡事項など">${esc(r.note || '')}</textarea></label>
     ${r.enteredBy ? `<p class="muted small-text">最終入力:${esc(r.enteredBy)} ${fmtDT(r.enteredAt)}</p>` : ''}
     <div class="err"></div>
     <div class="foot"><div class="grow"></div><button data-act="modal-close">キャンセル</button><button class="primary" data-act="rs-save">保存</button></div>`;
@@ -1576,7 +1620,10 @@ MODALS.itemDetail = m => {
 function openCostModal(opt) {
   const x = opt.x || null;
   // イベント以外の費用は「何月分」で持つ(date は その月の1日)
-  const month = x && x.date ? x.date.slice(0, 7) : state.tab === 'actual' ? state.uYm : today().slice(0, 7);
+  // 新規は今月。費用実績で別の四半期を見ているときは、その四半期の最初の月
+  const ur = uRange();
+  const month = x && x.date ? x.date.slice(0, 7)
+    : state.tab === 'actual' && !(today() >= ur[0] && today() <= ur[1]) ? ur[0].slice(0, 7) : today().slice(0, 7);
   const draft = {
     target: opt.target || '', eventId: opt.eventId || '', storeId: opt.storeId || '', month,
     costItemId: x ? x.costItemId : '', desc: x ? x.desc || '' : '', amount: x ? num(x.amount) : ''
@@ -1822,12 +1869,11 @@ C['item-detail'] = el => openModal({ kind: 'itemDetail', wide: true, item: el.da
 
 // 実績入力
 CH['u-store'] = el => go(() => { state.uStore = el.value; });
-C['u-month-step'] = el => go(() => {
-  const [y, m] = state.uYm.split('-').map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + Number(el.dataset.v), 1));
-  state.uYm = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
+C['u-q-step'] = el => go(() => {
+  const n = state.uFy * 4 + state.uQ - 1 + Number(el.dataset.v);
+  state.uFy = Math.floor(n / 4); state.uQ = n % 4 + 1;
 });
-C['u-month-today'] = () => go(() => { state.uYm = today().slice(0, 7); });
+C['u-q-today'] = () => go(() => { state.uFy = fyOf(today()); state.uQ = qOf(today()); });
 C['cost-new'] = el => {
   const sid = el.dataset.store != null ? el.dataset.store : (state.tab === 'actual' ? state.uStore : '');
   openCostModal({ target: el.dataset.ev ? 'event' : el.dataset.target || '', eventId: el.dataset.ev || '', storeId: sid });
@@ -2006,14 +2052,14 @@ C['rs-save'] = () => {
   const m = topModal();
   const e = clone(getEvent(m.id)); if (!e) return closeModal();
   const v = id => $(id) ? ($(id).value === '' ? '' : num($(id).value)) : undefined;
-  const r = { entered: true, enteredBy: session.user.name, enteredAt: new Date().toISOString(), good: $('rs-good').value, improve: $('rs-improve').value };
+  const r = Object.assign({}, e.result, { entered: true, enteredBy: session.user.name, enteredAt: new Date().toISOString(), note: $('rs-note').value });
   if (category(e) === 'visit') {
     Object.assign(r, { visits: v('rs-visits'), newVisits: v('rs-new'), appts: v('rs-appts') });
     if (num(r.newVisits) > num(r.visits)) return modalErr('「うち新規」が来場組数より多くなっています');
   } else Object.assign(r, { leads: v('rs-leads'), appts: v('rs-appts') });
   e.result = r;
   closeModal();
-  saveDoc('events/' + e.id, e, '成果を保存しました');
+  saveDoc('events/' + e.id, e, '反響実績を保存しました');
 };
 
 // 店舗設定モーダル
