@@ -232,6 +232,20 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .modal .rs-in input{font-size:20px;font-weight:700;padding:6px 10px}
 .rs-in em{font-style:normal;color:var(--muted)}
 input.money{text-align:right}
+.budget-hero{display:grid;grid-template-columns:minmax(260px,1fr) minmax(280px,1.3fr);gap:24px;align-items:center;border:2px solid var(--accent);padding:18px 20px}
+.bh-title{font-size:15px;font-weight:700;color:var(--accent);margin-bottom:6px}
+input.bh-input{width:100%;font-size:30px;font-weight:700;padding:8px 12px;margin-bottom:4px}
+.bh-side{border-left:1px solid var(--line);padding-left:24px}
+.bh-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:3px 0}
+.bh-row b{font-size:17px}
+.bh-row.sub{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);color:var(--muted)}
+.bh-row.sub b{font-size:15px;color:var(--text)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
+.dot-alloc{background:var(--accent)}.dot-rest{background:var(--line)}
+.bh-bar{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin:6px 0 2px}
+.bh-bar div{height:100%;background:var(--accent)}
+.bh-bar div.over{background:var(--danger)}
+@media (max-width:900px){.budget-hero{grid-template-columns:1fr}.bh-side{border-left:none;padding-left:0}}
 td input.money{width:130px}
 .cum-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .cum-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
@@ -606,7 +620,7 @@ function cumulativeHtml(c) {
     <div class="cum-head"><h3 style="margin:0">年度の累計</h3><span class="muted small-text">${kiLabel(c.fy)} ${m1}月〜${m2}月(Q1〜Q${c.q})</span></div>
     <div class="cum-nums">
       <div><span class="lbl">予算の累計</span><b>${c.budget ? yen(c.budget) : '未設定'}</b></div>
-      <div><span class="lbl">消化金額の累計</span><b class="${over ? 'red' : ''}">${yen(c.used)}</b></div>
+      <div><span class="lbl">使った金額の累計(実績)</span><b class="${over ? 'red' : ''}">${yen(c.used)}</b></div>
       <div><span class="lbl">残り</span><b class="${over ? 'red' : ''}">${c.budget ? yen(c.budget - c.used) : '—'}</b></div>
       <div><span class="lbl">消化率</span><b class="${over ? 'red' : ''}">${pct(c.used, c.budget)}</b></div>
     </div>
@@ -1055,9 +1069,8 @@ function viewPlan() {
   const evs = eventsIn(range, sid);
   const budget = num(plan.budget);
   const allocated = sum(evs, e => shareOf(e, sid));
-  const other = sum(othersIn(range, sid), c => num(c.amount));
-  const used = sum(evs, e => usedShare(e, sid)) + other;
-  const rest = budget - allocated - other;
+  const used = sum(evs, e => usedShare(e, sid));
+  const rest = budget - allocated;
   const memos = (plan.memos || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   return `
   <div class="view-head">
@@ -1066,12 +1079,18 @@ function viewPlan() {
     <select id="plan-q" data-act="plan-q">${[1, 2, 3, 4].map(q => `<option value="${q}" ${q === p.q ? 'selected' : ''}>${Q_LABEL[q]}</option>`).join('')}</select>
     <span class="muted small-text">${ymd(range[0])}〜${ymd(range[1])}</span>
   </div>
-  <div class="cards">
-    <div class="card"><div class="lbl">四半期予算</div>${moneyInput('id="plan-budget" data-act="plan-budget"', budget)}</div>
-    <div class="card"><div class="lbl">イベントに配分した予算</div><div class="val">${yen(allocated)}</div></div>
-    <div class="card"><div class="lbl">イベント以外の費用</div><div class="val">${yen(other)}</div></div>
-    <div class="card"><div class="lbl">まだ配分していない予算</div><div class="val ${rest < 0 ? 'neg' : ''}">${yen(rest)}</div></div>
-    <div class="card"><div class="lbl">使用金額(イベント以外も含む)</div><div class="val ${used > budget && budget > 0 ? 'neg' : ''}">${yen(used)}</div></div>
+  <div class="panel budget-hero">
+    <div class="bh-main">
+      <div class="bh-title">${esc(storeName(sid))} ${Q_LABEL[p.q]}の予算</div>
+      ${moneyInput('id="plan-budget" data-act="plan-budget" class="bh-input"', budget, '¥ 予算を入力')}
+      <div class="muted small-text">金額を入れて Enter(または欄の外をクリック)で保存</div>
+    </div>
+    <div class="bh-side">
+      <div class="bh-row"><span><i class="dot dot-alloc"></i>イベントに配分した予算</span><b>${yen(allocated)}</b></div>
+      <div class="bh-row"><span><i class="dot dot-rest"></i>まだ配分していない予算</span><b class="${rest < 0 ? 'red' : ''}">${yen(rest)}</b></div>
+      <div class="bh-bar">${budget > 0 ? `<div class="${rest < 0 ? 'over' : ''}" style="width:${Math.min(100, allocated / budget * 100)}%"></div>` : ''}</div>
+      <div class="bh-row sub"><span>イベントの使用金額(実績)</span><b class="${used > budget && budget > 0 ? 'red' : ''}">${yen(used)}</b></div>
+    </div>
   </div>
   ${cumulativeHtml(cumulative(p.fy, p.q, sid))}
   <div class="panel">
