@@ -309,6 +309,7 @@ const CFG = window.EVENT_TOOL_CONFIG || {};
 const API_URL = String(CFG.apiUrl || '').trim();
 const DEMO = !API_URL;
 const POLL_MS = 60000;
+const API_TIMEOUT_MS = 30000;
 
 const VISIT_TYPES = ['完成見学会', 'モデルハウス見学会', '移動型見学会', '相談会', '賑やかし', 'キャンペーン', 'その他'];
 const EXHIBIT_TYPES = ['大型出展イベント', '出展イベント'];
@@ -504,8 +505,12 @@ async function api(action, params, quiet) {
   try {
     if (DEMO) res = await demoApi(body);
     else {
-      const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify(body), redirect: 'follow' });
-      res = await r.json();
+      const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = ctl && setTimeout(() => ctl.abort(), API_TIMEOUT_MS);
+      try {
+        const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify(body), redirect: 'follow', signal: ctl ? ctl.signal : undefined });
+        res = await r.json();
+      } finally { clearTimeout(timer); }
     }
   } catch (e) {
     if (!quiet) setBusy(-1);
@@ -791,7 +796,7 @@ async function refreshInBackground() {
     if (JSON.stringify(session.user) !== before) { applyPermStyle(); applyStoreDefaults(); $('root').innerHTML = shellHtml(); render(); }
     else softRender();
   } catch (e) {
-    if (e.code !== 'AUTH' && e.code !== 'MUST_CHANGE') toast('最新の内容を読み込めませんでした:' + e.message, { err: true });
+    if (e.code !== 'AUTH' && e.code !== 'MUST_CHANGE') { pollError = e.message; toast('最新の内容を読み込めませんでした:' + e.message, { err: true }); }
   } finally {
     refreshing = false; polling = false; renderSyncInfo();
   }
@@ -830,8 +835,10 @@ async function resync() {
 }
 
 let polling = false;
+let pollError = null; // 自動更新が失敗しているときの理由
 async function poll(manual) {
-  if (!session.user || polling) return;
+  if (!session.user) return;
+  if (polling) { if (manual) toast('いま確認中です。少し待ってください'); return; }
   polling = true;
   try {
     const r = await api('changes', { since: version }, !manual);
@@ -846,11 +853,14 @@ async function poll(manual) {
     version = Math.max(version, r.version || 0);
     if (r.user) session.user = r.user;
     lastSync = new Date();
+    pollError = null;
     cacheSave();
     if (state.tab === 'accounts' && manual) loadUsers();
     if (changed) softRender(); else renderSyncInfo();
     if (manual) toast(changed ? '最新の内容に更新しました' : '最新の状態です');
   } catch (e) {
+    pollError = e.message;
+    renderSyncInfo();
     if (manual) toast(e.message, { err: true });
   } finally {
     polling = false;
@@ -858,6 +868,8 @@ async function poll(manual) {
 }
 setInterval(() => { if (document.visibilityState === 'visible') poll(); }, POLL_MS);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); });
+window.addEventListener('focus', () => poll());
+window.addEventListener('online', () => poll());
 
 // ====================================================================== 画面の状態
 const now0 = today();
@@ -924,9 +936,15 @@ function render() {
 function renderSyncInfo() {
   const el = $('sync-info'); if (!el) return;
   el.classList.toggle('err', syncState === 'error');
+  el.title = '';
   if (syncState === 'saving' || pendingWrites) el.innerHTML = '<span class="spinner"></span>保存中…';
   else if (syncState === 'error') el.textContent = '保存できなかった変更があります';
   else if (refreshing) el.innerHTML = '<span class="spinner"></span>最新の内容を確認中…';
+  else if (pollError) {
+    el.classList.add('err');
+    el.textContent = `⚠ 自動更新できていません${lastSync ? `(最終更新 ${pad(lastSync.getHours())}:${pad(lastSync.getMinutes())})` : ''}`;
+    el.title = pollError + '\n自動でやり直します。「更新」でもやり直せます。';
+  }
   else el.textContent = lastSync ? `最終更新 ${pad(lastSync.getHours())}:${pad(lastSync.getMinutes())}` + (pendingRender ? '(新しい変更あり)' : '') : '';
 }
 
