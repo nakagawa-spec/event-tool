@@ -232,6 +232,13 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .modal .rs-in input{font-size:20px;font-weight:700;padding:6px 10px}
 .rs-in em{font-style:normal;color:var(--muted)}
 input.money{text-align:right}
+.stodo-form{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.stodo-form input[type=date]{width:140px}
+.stodo-form #stodo-text{flex:1;min-width:120px}
+.todo-item .t2{margin-left:4px}
+.bh-value{font-size:30px;font-weight:700;padding:4px 0}
+.view-table th{width:90px;background:none;vertical-align:top}
+.store-note{font-size:12px;color:var(--muted)}
 .budget-hero{display:grid;grid-template-columns:minmax(260px,1fr) minmax(280px,1.3fr);gap:24px;align-items:center;border:2px solid var(--accent);padding:18px 20px}
 .bh-title{font-size:15px;font-weight:700;color:var(--accent);margin-bottom:6px}
 input.bh-input{width:100%;font-size:30px;font-weight:700;padding:8px 12px;margin-bottom:4px}
@@ -290,7 +297,51 @@ const POLL_MS = 60000;
 const VISIT_TYPES = ['完成見学会', 'モデルハウス見学会', '移動型見学会', '相談会', '賑やかし', 'キャンペーン', 'その他'];
 const EXHIBIT_TYPES = ['大型出展イベント', '出展イベント'];
 const BIG = '大型出展イベント';
-const ROLE_LABEL = { admin: '管理者', manager: '店長', staff: 'スタッフ' };
+const ROLE_LABEL = { admin: '管理者', manager: '店長', employee: '社員', vendor: '事業者', staff: '社員' };
+const ROLES = ['admin', 'manager', 'employee', 'vendor'];
+// ---------------------------------------------------------------- 権限
+// 操作のまとまりごとに、その操作のボタン(data-act)を並べる
+const PERM_ACTS = {
+  event: ['new-event', 'day-new', 'track', 'ev-save', 'ev-delete', 'ev-delete-ask', 'ev-alloc', 'ev-all', 'ev-store', 'ev-block'],
+  plan: ['plan-budget', 'budget-event', 'alloc-event', 'memo-add', 'memo-del', 'eb-save', 'al-save'],
+  result: ['result-event', 'ev-result', 'rs-save'],
+  cost: ['cost-new', 'cost-edit', 'exp-add', 'exp-del', 'exp-field', 'cx-save', 'cx-delete', 'cx-delete-ask'],
+  config: ['store-settings', 'cost-master', 'st-save', 'ci-save']
+};
+// 権限ごとに、できる操作
+const ROLE_PERMS = {
+  admin: ['event', 'plan', 'result', 'cost', 'config'],
+  manager: ['event', 'plan', 'result', 'cost'],
+  employee: ['cost'],
+  vendor: []
+};
+function myRole() { const r = session.user ? session.user.role : ''; return r === 'staff' ? 'employee' : r; }
+function can(perm) { return (ROLE_PERMS[myRole()] || []).includes(perm); }
+function permOfAct(act) { return Object.keys(PERM_ACTS).find(p => PERM_ACTS[p].includes(act)); }
+function actAllowed(act) { const p = permOfAct(act); return !p || can(p); }
+function tabsForRole() {
+  if (myRole() === 'vendor') return TABS.filter(t => t[0] === 'calendar');
+  return myRole() === 'admin' ? TABS.concat([['accounts', 'アカウント管理']]) : TABS;
+}
+/** できない操作のボタンを隠す(行のクリックは無効にするだけで行は見せる) */
+function applyPermStyle() {
+  const ng = [].concat(...Object.keys(PERM_ACTS).filter(p => !can(p)).map(p => PERM_ACTS[p]));
+  let el = $('perm-style');
+  if (!el) { el = document.createElement('style'); el.id = 'perm-style'; document.head.appendChild(el); }
+  el.textContent = ng.length ? ng.map(a => `button[data-act="${a}"],a[data-act="${a}"]`).join(',') + '{display:none !important}'
+    + ng.map(a => `[data-act="${a}"]`).join(',') + '{cursor:default !important}' : '';
+}
+/** 登録時に選んだ店舗を、各画面の最初の店舗にする(カレンダーは全店) */
+function applyStoreDefaults() {
+  const u = session.user, sid = u.storeId || '';
+  const key = u.id + ':' + sid;
+  if (state.defaultsFor === key) return;
+  state.defaultsFor = key;
+  state.hidden = [];
+  if (sid && sid !== 'all') { state.uStore = sid; state.plan.storeId = sid; state.bStore = sid; state.eStore = sid; }
+  else { state.bStore = 'all'; state.eStore = 'all'; }
+  saveUi();
+}
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 const TABS = [['calendar', 'カレンダー'], ['actual', '費用実績'], ['response', '反響実績'], ['plan', '四半期計画'], ['effect', '効果検証'], ['budget', '予算管理']];
 
@@ -459,14 +510,14 @@ async function demoApi(req) {
   const db = lsJSON('evt-demo-db', null) || { users: [], sessions: [], data: {}, ver: 0 };
   const save = () => lsSet('evt-demo-db', JSON.stringify(db));
   const ng = (error, code) => ({ ok: false, error, code });
-  const pub = u => ({ id: u.id, email: u.email, name: u.name, role: u.role, requestedRole: u.requestedRole || '', mustChange: !!u.mustChange, createdAt: u.createdAt, lastLogin: u.lastLogin });
+  const pub = u => ({ id: u.id, email: u.email, name: u.name, role: u.role === 'staff' ? 'employee' : u.role, requestedRole: u.requestedRole || '', mustChange: !!u.mustChange, createdAt: u.createdAt, lastLogin: u.lastLogin, storeId: u.storeId || '' });
   const hash = (p, salt) => sha(salt + ':' + p);
   const newSession = uidv => { const t = uid() + uid(); db.sessions.push({ token: t, userId: uidv }); return t; };
   const listUsers = () => ({ ok: true, users: db.users.map(pub) });
   const email = String(req.email || '').trim().toLowerCase();
   const now = new Date().toISOString();
   switch (req.action) {
-    case 'status': return { ok: true, hasUsers: db.users.length > 0 };
+    case 'status': return { ok: true, hasUsers: db.users.length > 0, stores: db.data['config/stores'] && !db.data['config/stores'].deleted ? db.data['config/stores'].value : null };
     case 'register': {
       const name = String(req.name || '').trim();
       if (!name) return ng('名前を入力してください');
@@ -478,7 +529,8 @@ async function demoApi(req) {
       if (role === 'admin' && !first) { role = 'manager'; requestedRole = 'admin'; }
       if (first) role = 'admin';
       const salt = uid();
-      const u = { id: uid(), email, name, role, requestedRole, salt, hash: await hash(req.password, salt), mustChange: false, createdAt: now, lastLogin: now };
+      if (!req.storeId) return ng('店舗を選んでください');
+      const u = { id: uid(), email, name, role, requestedRole, salt, hash: await hash(req.password, salt), mustChange: false, createdAt: now, lastLogin: now, storeId: req.storeId };
       db.users.push(u);
       const token = newSession(u.id); save();
       return { ok: true, token, user: pub(u) };
@@ -495,7 +547,7 @@ async function demoApi(req) {
   const me = s && db.users.find(u => u.id === s.userId);
   if (!me) return ng('ログインの有効期限が切れました。もう一度ログインしてください', 'AUTH');
   if (me.mustChange && !['changePassword', 'me', 'logout'].includes(req.action)) return ng('仮パスワードを変更してください', 'MUST_CHANGE');
-  const adminOnly = ['listUsers', 'approveAdmin', 'rejectAdmin', 'setRole', 'resetPassword', 'deleteUser'];
+  const adminOnly = ['listUsers', 'approveAdmin', 'rejectAdmin', 'setRole', 'setStore', 'resetPassword', 'deleteUser'];
   if (adminOnly.includes(req.action) && me.role !== 'admin') return ng('管理者だけが使える操作です');
   const target = db.users.find(u => u.id === req.userId);
   const admins = db.users.filter(u => u.role === 'admin').length;
@@ -523,6 +575,9 @@ async function demoApi(req) {
     case 'listUsers': return listUsers();
     case 'approveAdmin': if (target) { target.role = 'admin'; target.requestedRole = ''; } save(); return listUsers();
     case 'rejectAdmin': if (target) target.requestedRole = ''; save(); return listUsers();
+    case 'setStore':
+      if (!target) return ng('アカウントが見つかりません');
+      target.storeId = req.storeId; save(); return listUsers();
     case 'setRole':
       if (!target) return ng('アカウントが見つかりません');
       if (target.role === 'admin' && req.role !== 'admin' && admins <= 1) return ng('最後の1人の管理者の権限は変更できません');
@@ -708,7 +763,7 @@ async function refreshInBackground() {
   try {
     await loadAll();
     if (!session.user) return;
-    if (JSON.stringify(session.user) !== before) { $('root').innerHTML = shellHtml(); render(); }
+    if (JSON.stringify(session.user) !== before) { applyPermStyle(); applyStoreDefaults(); $('root').innerHTML = shellHtml(); render(); }
     else softRender();
   } catch (e) {
     if (e.code !== 'AUTH' && e.code !== 'MUST_CHANGE') toast('最新の内容を読み込めませんでした:' + e.message, { err: true });
@@ -790,8 +845,8 @@ const state = Object.assign({
 }, lsJSON('evt-ui', {}));
 state.users = null; state.accQ = ''; state.accRole = ''; state.accConfirm = null; state.open = {};
 function saveUi() {
-  const { tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uFy, uQ } = state;
-  lsSet('evt-ui', JSON.stringify({ tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uFy, uQ }));
+  const { tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uFy, uQ, defaultsFor } = state;
+  lsSet('evt-ui', JSON.stringify({ tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uFy, uQ, defaultsFor }));
 }
 const isHidden = sid => state.hidden.includes(sid);
 function visibleByFilter(e) { return isAll(e) || (e.stores || []).some(id => !isHidden(id)) || !(e.stores || []).some(storeById); }
@@ -831,7 +886,7 @@ function render() {
 
   $('tabs').innerHTML = tabsHtml();
   $('main').innerHTML = mainHtml();
-  $('todo').innerHTML = todoHtml();
+  $('todo').innerHTML = myRole() === 'admin' ? todoHtml() : storeTodoHtml();
   $('layout').classList.toggle('todo-closed', !!state.todoClosed);
   renderSyncInfo();
 
@@ -860,7 +915,7 @@ function shellHtml() {
       <span id="sync-info"></span>
       <button class="small" data-act="refresh" title="他の人の入力を読み込みます">更新</button>
       <button class="small" data-act="store-settings">店舗・ブロック設定</button>
-      <span class="user">${esc(u.name)} <span class="role ${u.role}">${ROLE_LABEL[u.role] || u.role}</span>
+      <span class="user">${esc(u.name)} <span class="role ${u.role}">${ROLE_LABEL[u.role] || u.role}</span>${u.storeId ? `<span class="muted small-text">${u.storeId === 'all' ? '本部' : esc(storeName(u.storeId))}</span>` : ''}
         ${u.requestedRole === 'admin' ? '<span class="badge warn">管理者 承認待ち</span>' : ''}</span>
       <button class="small" data-act="change-pass">パスワード変更</button>
       <button class="small" data-act="logout">ログアウト</button>
@@ -870,12 +925,10 @@ function shellHtml() {
   <div class="layout" id="layout"><main id="main"></main><aside id="todo"></aside></div>`;
 }
 function tabsHtml() {
-  const tabs = TABS.slice();
-  if (session.user.role === 'admin') tabs.push(['accounts', 'アカウント管理']);
-  return tabs.map(([k, l]) => `<button class="${state.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}">${l}</button>`).join('');
+  return tabsForRole().map(([k, l]) => `<button class="${state.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}">${l}</button>`).join('');
 }
 function mainHtml() {
-  if (state.tab === 'accounts' && session.user.role !== 'admin') state.tab = 'calendar';
+  if (!tabsForRole().some(t => t[0] === state.tab)) state.tab = 'calendar';
   switch (state.tab) {
     case 'actual': return viewActual();
     case 'response': return viewResponse();
@@ -972,7 +1025,7 @@ function calStore(y, m) {
       <div class="sg-track" data-act="track" data-sid="${r.sid}" data-first="${first}" style="--n:${n};--lanes:${lanes}">${bg}${bars}</div></div>`;
   }).join('');
   return `<div class="sg-wrap" id="sg-scroll"><div class="sg">${head}${body}</div></div>
-    <p class="muted small-text">空いているところをクリックすると、その日・その店舗でイベントを登録できます。</p>`;
+    ${can('event') ? '<p class="muted small-text">空いているところをクリックすると、その日・その店舗でイベントを登録できます。</p>' : ''}`;
 }
 function calMonth(y, m) {
   const [first, last] = monthBounds(y, m);
@@ -993,13 +1046,14 @@ function calMonth(y, m) {
 function calList(y, m) {
   const [first, last] = monthBounds(y, m);
   const evs = evList().filter(e => e.start && e.start <= last && evEnd(e) >= first && visibleByFilter(e));
+  const money = myRole() !== 'vendor'; // 事業者には金額・実績を見せない
   if (!evs.length) return `<div class="panel empty">この月のイベントはまだありません</div>`;
   return `<div class="table-wrap"><table>
-    <tr><th>日付</th><th>イベント名</th><th>種類</th><th>店舗</th><th class="num">予算</th><th class="num">使用金額</th><th>成果</th></tr>
+    <tr><th>日付</th><th>イベント名</th><th>種類</th><th>店舗</th>${money ? '<th class="num">予算</th><th class="num">使用金額</th><th>成果</th>' : ''}</tr>
     ${evs.map(e => `<tr class="clickable" data-act="edit-event" data-id="${e.id}">
       <td class="nowrap">${dateRange(e)}</td><td><span class="typetag ${typeClass(e)}"></span>${esc(e.name)}</td>
       <td class="nowrap">${esc(e.type)}</td><td>${esc(storeLabel(e))}</td>
-      <td class="num">${yen(budgetOf(e))}</td><td class="num">${yen(usedOf(e))}</td><td>${resultBadge(e)}</td></tr>`).join('')}
+      ${money ? `<td class="num">${yen(budgetOf(e))}</td><td class="num">${yen(usedOf(e))}</td><td>${resultBadge(e)}</td>` : ''}</tr>`).join('')}
   </table></div>`;
 }
 function resultBadge(e) {
@@ -1043,6 +1097,46 @@ function todoHtml() {
       <button class="link small" data-act="todo-toggle">閉じる</button></div>
     <label class="chk small-text"><input type="checkbox" data-act="todo-showdone" ${state.showDone ? 'checked' : ''}> 完了したタスクも表示</label>
     ${list || '<div class="empty small-text">やることはありません</div>'}
+  </div>`;
+}
+
+// ---------------------------------------------------------------- 店舗で共有するToDo(店長・社員・事業者)
+function storeTodos(sid) {
+  return Object.keys(docs).filter(k => k.startsWith('todos/') && docs[k]).map(k => docs[k])
+    .filter(t => t.storeId === sid).sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || '').localeCompare(b.createdAt || ''));
+}
+function storeTodoHtml() {
+  const sid = session.user.storeId || '';
+  const items = storeTodos(sid);
+  const open = items.filter(t => !t.done).length;
+  if (state.todoClosed) return `<div class="todo closed"><button data-act="todo-toggle">ToDo(${open})を開く</button></div>`;
+  const td = today();
+  const shown = items.filter(t => !t.done || state.showDone || recentDone.has(t.id));
+  const list = shown.map(t => {
+    const left = t.date ? diffDays(td, t.date) : null;
+    const cls = t.done || left == null ? '' : left < 0 ? 'over' : left <= 3 ? 'soon' : '';
+    const dueText = !t.date ? '日付なし' : t.done ? md(t.date) : left < 0 ? `${md(t.date)} 期限切れ` : left === 0 ? '今日まで' : `${md(t.date)} あと${left}日`;
+    return `<div class="todo-item ${t.done ? 'done' : ''}">
+      <input type="checkbox" data-act="stodo-check" data-id="${t.id}" ${t.done ? 'checked' : ''} aria-label="完了にする">
+      <div class="grow">
+        <div class="t1">${esc(t.text)}</div>
+        <span class="due ${cls}">${dueText}</span> <span class="t2">${esc(t.by || '')}</span>
+        ${recentDone.has(t.id) && t.done ? `<button class="link small" data-act="stodo-undo" data-id="${t.id}">元に戻す</button>` : ''}
+      </div>
+      <button class="link small danger-text" data-act="stodo-del" data-id="${t.id}" title="削除">×</button></div>`;
+  }).join('');
+  return `<div class="todo">
+    <div class="todo-head"><h3>ToDo</h3><span class="badge gray">${open}件</span>
+      <span class="muted small-text">${sid ? esc(storeName(sid)) : ''}</span><div class="grow"></div>
+      <button class="link small" data-act="todo-toggle">閉じる</button></div>
+    ${sid ? `<div class="stodo-form">
+      <input type="date" id="stodo-date" value="${td}" aria-label="日付">
+      <input id="stodo-text" placeholder="やること" aria-label="やること">
+      <button class="primary small" data-act="stodo-add">追加</button></div>
+    <label class="chk small-text"><input type="checkbox" data-act="todo-showdone" ${state.showDone ? 'checked' : ''}> 完了したものも表示</label>
+    ${list || '<div class="empty small-text">やることはありません</div>'}
+    <p class="muted small-text" style="margin:8px 0 0">同じ店舗の人と共有されます。</p>`
+    : '<div class="empty small-text">所属店舗が設定されていません。<br>管理者に店舗を設定してもらってください。</div>'}
   </div>`;
 }
 
@@ -1106,8 +1200,9 @@ function viewPlan() {
   <div class="panel budget-hero">
     <div class="bh-main">
       <div class="bh-title">${esc(storeName(sid))} ${Q_LABEL[p.q]}の予算</div>
-      ${moneyInput('id="plan-budget" data-act="plan-budget" class="bh-input"', budget, '¥ 予算を入力')}
-      <div class="muted small-text">金額を入れて Enter(または欄の外をクリック)で保存</div>
+      ${can('plan') ? `${moneyInput('id="plan-budget" data-act="plan-budget" class="bh-input"', budget, '¥ 予算を入力')}
+      <div class="muted small-text">金額を入れて Enter(または欄の外をクリック)で保存</div>`
+      : `<div class="bh-value">${budget ? yen(budget) : '未設定'}</div><div class="muted small-text">四半期予算は店長・管理者が入力します</div>`}
     </div>
     <div class="bh-side">
       <div class="bh-row"><span><i class="dot dot-alloc"></i>イベントに配分した予算</span><b>${yen(allocated)}</b></div>
@@ -1136,7 +1231,7 @@ function viewPlan() {
   </div>
   <div class="panel">
     <h3>打ち合わせメモ</h3>
-    <div class="memo-form">
+    <div class="memo-form" ${can('plan') ? '' : 'hidden'}>
       <input type="date" id="memo-date" value="${today()}">
       <textarea id="memo-text" placeholder="打ち合わせの内容"></textarea>
       <button class="primary" data-act="memo-add">追加</button>
@@ -1449,6 +1544,15 @@ async function loadUsers() {
   try { const r = await api('listUsers'); state.users = r.users; render(); }
   catch (e) { toast(e.message, { err: true }); }
 }
+function accStoreSelect(u) {
+  const sid = u.storeId || '';
+  return `<select id="acc-s-${u.id}" data-act="acc-setstore" data-id="${u.id}">
+    ${sid ? '' : '<option value="" selected>(未設定)</option>'}
+    ${blocks().map(b => `<optgroup label="${esc(b.name)}">${stores().filter(x => x.blockId === b.id).map(x => `<option value="${x.id}" ${x.id === sid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}
+    ${stores().filter(x => !blocks().some(b => b.id === x.blockId)).map(x => `<option value="${x.id}" ${x.id === sid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
+    <option value="all" ${sid === 'all' ? 'selected' : ''}>本部</option>
+    ${sid && sid !== 'all' && !storeById(sid) ? '<option selected>(削除された店舗)</option>' : ''}</select>`;
+}
 function viewAccounts() {
   if (!state.users) { loadUsers(); return '<div class="panel empty">読み込み中…</div>'; }
   const users = state.users;
@@ -1468,17 +1572,17 @@ function viewAccounts() {
   </div>` : ''}
   <div class="cards">
     <div class="card"><div class="lbl">登録者</div><div class="val">${users.length}人</div></div>
-    ${['admin', 'manager', 'staff'].map(r => `<div class="card"><div class="lbl">${ROLE_LABEL[r]}</div><div class="val">${users.filter(u => u.role === r).length}人</div></div>`).join('')}
+    ${ROLES.map(r => `<div class="card"><div class="lbl">${ROLE_LABEL[r]}</div><div class="val">${users.filter(u => u.role === r).length}人</div></div>`).join('')}
   </div>
   <div class="panel">
     <div class="view-head">
       <input id="acc-q" data-act="acc-q" placeholder="名前・メールで検索" value="${esc(state.accQ)}">
       <select id="acc-role" data-act="acc-role-filter"><option value="">すべての権限</option>
-        ${['admin', 'manager', 'staff'].map(r => `<option value="${r}" ${state.accRole === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>
+        ${ROLES.map(r => `<option value="${r}" ${state.accRole === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>
       <div class="grow"></div><button class="small" data-act="acc-reload">最新にする</button>
     </div>
     <div class="table-wrap"><table>
-      <tr><th>名前</th><th>メールアドレス</th><th>権限</th><th>登録日時</th><th>最終ログイン</th><th>パスワード</th><th></th></tr>
+      <tr><th>名前</th><th>メールアドレス</th><th>権限</th><th>店舗</th><th>登録日時</th><th>最終ログイン</th><th>パスワード</th><th></th></tr>
       ${list.map(u => {
         const self = u.id === me.id;
         const lastAdmin = u.role === 'admin' && admins <= 1;
@@ -1486,7 +1590,8 @@ function viewAccounts() {
         return `<tr>
           <td>${esc(u.name)}${self ? ' <span class="badge gray">自分</span>' : ''}</td><td>${esc(u.email)}</td>
           <td>${self || lastAdmin ? `<span class="role ${u.role}">${ROLE_LABEL[u.role]}</span>` :
-            `<select id="acc-r-${u.id}" data-act="acc-setrole" data-id="${u.id}">${['admin', 'manager', 'staff'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>`}</td>
+            `<select id="acc-r-${u.id}" data-act="acc-setrole" data-id="${u.id}">${ROLES.map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE_LABEL[r]}</option>`).join('')}</select>`}</td>
+          <td>${accStoreSelect(u)}</td>
           <td class="nowrap small-text">${fmtDT(u.createdAt)}</td><td class="nowrap small-text">${fmtDT(u.lastLogin)}</td>
           <td class="small-text">設定済み(暗号化)${u.mustChange ? '<br><span class="badge warn">仮パスワード</span>' : ''}</td>
           <td class="nowrap">
@@ -1495,9 +1600,9 @@ function viewAccounts() {
               ? `<button class="danger small" data-act="acc-delete" data-id="${u.id}">削除する</button><button class="link small" data-act="acc-cancel">やめる</button>`
               : `<button class="link small danger-text" data-act="acc-delete-ask" data-id="${u.id}">削除</button>`}
           </td></tr>`;
-      }).join('') || '<tr><td colspan="7" class="empty">該当するアカウントはありません</td></tr>'}
+      }).join('') || '<tr><td colspan="8" class="empty">該当するアカウントはありません</td></tr>'}
     </table></div>
-    <p class="muted small-text">自分のアカウントと、最後の1人の管理者は削除できません。パスワードは暗号化して保存しているため、管理者でも中身は見られません。忘れた人には「仮パスワード発行」で新しいパスワードを伝えてください(次のログイン時に本人が変更します)。</p>
+    <p class="muted small-text">店舗を移動した人は「店舗」を変えてください(次に開いたとき、その店舗が最初に表示されます)。自分のアカウントと、最後の1人の管理者は削除できません。パスワードは暗号化して保存しているため、管理者でも中身は見られません。忘れた人には「仮パスワード発行」で新しいパスワードを伝えてください(次のログイン時に本人が変更します)。</p>
   </div>`;
 }
 
@@ -1525,6 +1630,8 @@ const MODALS = {};
 // ---------------------------------------------------------------- イベント登録・編集
 function openEventModal(id, preset) {
   const base = { id: null, name: '', type: VISIT_TYPES[0], start: today(), end: '', stores: [], budget: 0, memo: '', allocations: [], expenses: [], todos: {} };
+  if (id && !can('event')) { if (getEvent(id)) openModal({ kind: 'eventView', id }); return; }
+  if (!can('event')) return;
   const draft = id ? clone(getEvent(id)) : Object.assign(base, preset || {});
   if (!draft) return;
   openModal({ kind: 'event', draft, isNew: !id, confirmDel: false });
@@ -1585,6 +1692,20 @@ function readEventForm(m) {
   if ($('ev-all').checked) e.stores = ['all'];
   else e.stores = [...document.querySelectorAll('#modal-root .ev-store:checked')].map(x => x.value);
 }
+
+// ---------------------------------------------------------------- イベントの内容(見るだけ)
+MODALS.eventView = m => {
+  const e = getEvent(m.id);
+  if (!e) return '<p>イベントが見つかりません</p><div class="foot"><div class="grow"></div><button data-act="modal-close">閉じる</button></div>';
+  return `<h2>${esc(e.name)}</h2>
+    <table class="view-table">
+      <tr><th>日付</th><td>${e.end && e.end !== e.start ? `${ymd(e.start)} 〜 ${ymd(e.end)}` : ymd(e.start)}</td></tr>
+      <tr><th>種類</th><td><span class="typetag ${typeClass(e)}"></span>${esc(e.type)}</td></tr>
+      <tr><th>開催店舗</th><td>${isAll(e) ? '全店共通' : (e.stores || []).map(storeName).map(esc).join('、')}</td></tr>
+      ${e.memo ? `<tr><th>メモ</th><td style="white-space:pre-wrap">${esc(e.memo)}</td></tr>` : ''}
+    </table>
+    <div class="foot"><div class="grow"></div><button class="primary" data-act="modal-close">閉じる</button></div>`;
+};
 
 // ---------------------------------------------------------------- 予算の割り振り
 function openAllocModal(e, onSave) {
@@ -1825,15 +1946,17 @@ document.addEventListener('click', ev => {
   const fn = ACT.click[el.dataset.act];
   if (!fn) return;
   if (el.tagName === 'A') ev.preventDefault();
+  if (!actAllowed(el.dataset.act)) return;
   if (el.dataset.act === 'modal-bg' && ev.target !== el) return;
   fn(el, ev);
 });
 ['change', 'input'].forEach(type => document.addEventListener(type, ev => {
   const el = ev.target.closest('[data-act]');
-  if (el && ACT[type][el.dataset.act]) ACT[type][el.dataset.act](el, ev);
+  if (el && ACT[type][el.dataset.act] && actAllowed(el.dataset.act)) ACT[type][el.dataset.act](el, ev);
 }));
 document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && modalStack.length) closeModal();
+  if (ev.key === 'Enter' && ev.target.id === 'stodo-text' && !ev.isComposing) ACT.click['stodo-add']();
   if (ev.key === 'Enter' && ev.target.id === 'eb-amount' && !ev.isComposing) ACT.click['eb-save']();
   if (ev.key === 'Enter' && ev.target.id === 'plan-budget' && !ev.isComposing) ev.target.blur(); // Enter で確定(保存)
   if (ev.key === 'Enter' && ev.target.id === 'memo-text' && (ev.ctrlKey || ev.metaKey)) ACT.click['memo-add']();
@@ -1910,6 +2033,31 @@ C['todo-undo'] = el => {
   recentDone.delete(e.id + ':' + el.dataset.k);
   e.todos = Object.assign({}, e.todos, { [el.dataset.k]: false });
   saveDoc('events/' + e.id, e);
+};
+
+// 店舗で共有するToDo
+C['stodo-add'] = () => {
+  const text = $('stodo-text').value.trim();
+  if (!text) { $('stodo-text').focus(); return; }
+  const id = uid();
+  $('stodo-text').value = '';
+  saveDoc('todos/' + id, { id, storeId: session.user.storeId, date: $('stodo-date').value || '', text, done: false, by: session.user.name, createdAt: new Date().toISOString() }, 'ToDoを追加しました');
+};
+CH['stodo-check'] = el => {
+  const t = clone(getDoc('todos/' + el.dataset.id)); if (!t) return;
+  t.done = el.checked; t.doneBy = el.checked ? session.user.name : '';
+  if (el.checked) { recentDone.add(t.id); setTimeout(() => { recentDone.delete(t.id); scheduleRender(); }, 5000); } else recentDone.delete(t.id);
+  saveDoc('todos/' + t.id, t);
+};
+C['stodo-undo'] = el => {
+  const t = clone(getDoc('todos/' + el.dataset.id)); if (!t) return;
+  recentDone.delete(t.id); t.done = false;
+  saveDoc('todos/' + t.id, t);
+};
+C['stodo-del'] = el => {
+  const t = getDoc('todos/' + el.dataset.id); if (!t) return;
+  if (!confirm(`「${t.text}」を削除しますか?`)) return;
+  removeDoc('todos/' + t.id, 'ToDoを削除しました');
 };
 
 // 期間・店舗
@@ -2071,6 +2219,10 @@ async function accCall(action, params, msg) {
   } catch (e) { toast(e.message, { err: true }); render(); }
 }
 C['acc-approve'] = el => accCall('approveAdmin', { userId: el.dataset.id }, '管理者にしました');
+CH['acc-setstore'] = el => accCall('setStore', { userId: el.dataset.id, storeId: el.value }, '店舗を変更しました').then(r => {
+  if (!r) return;
+  if (el.dataset.id === session.user.id) { session.user.storeId = el.value; cacheSave(); $('root').innerHTML = shellHtml(); applyStoreDefaults(); render(); }
+});
 C['acc-reject'] = el => accCall('rejectAdmin', { userId: el.dataset.id }, '申請を却下しました');
 CH['acc-setrole'] = el => accCall('setRole', { userId: el.dataset.id, role: el.value }, '権限を変更しました');
 C['acc-delete-ask'] = el => { state.accConfirm = el.dataset.id; render(); };
@@ -2088,7 +2240,7 @@ C['copy-temp'] = el => {
 
 // モーダル共通
 C['modal-close'] = () => closeModal();
-C['modal-bg'] = () => { const k = topModal().kind; if (k === 'itemDetail' || k === 'temp') closeModal(); };
+C['modal-bg'] = () => { const k = topModal().kind; if (k === 'itemDetail' || k === 'temp' || k === 'eventView') closeModal(); };
 
 // イベントモーダル
 CH['ev-all'] = () => { const m = topModal(); readEventForm(m); renderModal(); };
@@ -2234,11 +2386,19 @@ function toast(msg, opt) {
 }
 
 // ====================================================================== ログイン画面
-let authMode = 'login', hasUsers = true, needsCode = false;
+let authMode = 'login', hasUsers = true, needsCode = false, regStores = null;
+function regStoreSelect() {
+  const cfg = regStores && Array.isArray(regStores.stores) ? regStores : DEFAULT_STORES;
+  const bl = cfg.blocks || [];
+  return `<select name="storeId" required><option value="">選んでください</option>
+    ${bl.map(b => `<optgroup label="${esc(b.name)}">${cfg.stores.filter(x => x.blockId === b.id).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}
+    ${cfg.stores.filter(x => !bl.some(b => b.id === x.blockId)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}
+    <option value="all">本部(店舗に属さない)</option></select>`;
+}
 async function showAuth(mode) {
   authMode = mode;
   modalStack.length = 0; renderModal();
-  if (mode === 'register') { try { const s = await api('status'); hasUsers = s.hasUsers; needsCode = !!s.needsCode; } catch (e) { } }
+  if (mode === 'register') { try { const s = await api('status'); hasUsers = s.hasUsers; needsCode = !!s.needsCode; regStores = s.stores || null; } catch (e) { } }
   $('root').innerHTML = authHtml();
   const f = $('root').querySelector('input'); if (f) f.focus();
 }
@@ -2257,9 +2417,11 @@ function authHtml() {
     <h1>新規登録</h1><p class="muted">店舗イベント管理を使うためのアカウントを作ります。</p>${demo}
     ${hasUsers ? '' : '<div class="note">まだ誰も登録していません。最初に登録した人が管理者になります。</div>'}
     <form data-form="register">
+      <label><span>店舗</span>${regStoreSelect()}</label>
       <label><span>権限</span><select name="role" ${hasUsers ? '' : 'disabled'}>
-        <option value="staff">スタッフ</option><option value="manager">店長</option><option value="admin" ${hasUsers ? '' : 'selected'}>管理者</option></select></label>
-      ${hasUsers ? '<div class="note">管理者を選んだ場合は、今いる管理者が承認すると管理者になります。承認されるまでは店長として使えます。</div>' : ''}
+        <option value="employee">社員</option><option value="manager">店長</option><option value="vendor">事業者(制作会社など)</option>
+        <option value="admin" ${hasUsers ? '' : 'selected'}>管理者</option></select></label>
+      ${hasUsers ? '<div class="note">店長:イベント・四半期計画・費用・反響実績の入力<br>社員:費用実績の入力(ほかは見るだけ)<br>事業者:カレンダーを見るだけ<br>管理者を選んだ場合は、今いる管理者が承認すると管理者になります(承認までは店長として使えます)。</div>' : ''}
       
       ${needsCode ? '<label><span>登録用コード(管理者から聞いてください)</span><input name="code" autocomplete="off" required></label>' : ''}
       <label><span>名前</span><input name="name" autocomplete="name" required></label>
@@ -2304,7 +2466,7 @@ document.addEventListener('submit', async ev => {
     }
     const r = form.dataset.form === 'login'
       ? await api('login', { email: fd.email, password: fd.password })
-      : await api('register', { email: fd.email, password: fd.password, name: fd.name, role: fd.role || 'admin', code: fd.code || '' });
+      : await api('register', { email: fd.email, password: fd.password, name: fd.name, role: fd.role || 'admin', code: fd.code || '', storeId: fd.storeId || '' });
     session.token = r.token; session.user = r.user;
     lsSet('evt-token', r.token);
     if (r.user.mustChange) return showAuth('change');
@@ -2339,6 +2501,8 @@ async function startApp(mode) {
       return;
     }
   }
+  applyPermStyle();
+  applyStoreDefaults();
   $('root').innerHTML = shellHtml();
   render();
   if (mode === 'cache') refreshInBackground();
