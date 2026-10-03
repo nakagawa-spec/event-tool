@@ -338,7 +338,7 @@ const ROLES = ['admin', 'manager', 'employee', 'vendor'];
 const PERM_ACTS = {
   event: ['new-event', 'day-new', 'track', 'ev-save', 'ev-delete', 'ev-delete-ask', 'ev-alloc', 'ev-all', 'ev-store', 'ev-block'],
   plan: ['plan-budget', 'plan-budget-store', 'budget-event', 'alloc-event', 'memo-add', 'memo-del', 'eb-save', 'al-save', 'minutes-add', 'minutes-del'],
-  result: ['result-event', 'ev-result', 'rs-save'],
+  result: ['result-event', 'ev-result', 'rs-save', 'rs-store'],
   cost: ['cost-new', 'cost-edit', 'exp-add', 'exp-del', 'exp-field', 'cx-save', 'cx-delete', 'cx-delete-ask'],
   config: ['store-settings', 'cost-master', 'st-save', 'ci-save'],
   prep: ['prep-toggle']
@@ -378,7 +378,7 @@ function applyStoreDefaults() {
   saveUi();
 }
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
-const TABS = [['calendar', 'カレンダー'], ['actual', '費用実績'], ['response', '反響実績'], ['plan', '四半期計画'], ['effect', '効果検証'], ['budget', '予算管理']];
+const TABS = [['calendar', 'カレンダー'], ['actual', '費用実績'], ['response', '反響実績'], ['plan', '四半期計画'], ['effect', '分析シート'], ['budget', '予算管理']];
 
 const DEFAULT_STORES = {
   blocks: [
@@ -712,10 +712,26 @@ function usedShare(e, sid) {
 }
 function ratio(e, sid) { const u = usedOf(e); return sid === 'all' ? 1 : u > 0 ? usedShare(e, sid) / u : (participants(e).includes(sid) ? 1 / participants(e).length : 0); }
 function todoDone(e, key) {
-  if (key === 'result' && e.result && e.result.entered) return true;
+  if (key === 'result' && allEntered(e)) return true;
   return !!(e.todos && e.todos[key]);
 }
-function hasResult(e) { return !!(e.result && e.result.entered); }
+/** 合同・全店共通の来場型イベントは、店舗ごとに反響実績を入れる(出展はイベント全体で1つ) */
+function perStore(e) { return category(e) === 'visit' && !isSingle(e); }
+function storeResult(e, sid) { const r = getDoc(`results/${e.id}~${sid}`); return r && r.entered ? r : null; }
+/** その店舗の実績(sid が 'all' や空なら全体の合計) */
+function resultOf(e, sid) {
+  const whole = e.result && e.result.entered ? e.result : null;
+  if (!perStore(e)) return whole;
+  if (sid && sid !== 'all') return storeResult(e, sid);
+  const list = participants(e).map(id => storeResult(e, id)).filter(Boolean);
+  if (!list.length) return whole; // 以前のやり方(イベント全体で1つ)で入っていたもの
+  const f = k => sum(list, r => num(r[k]));
+  return { entered: true, visits: f('visits'), newVisits: f('newVisits'), appts: f('appts'),
+    note: list.filter(r => r.note).map(r => `${storeName(r.storeId)}:${r.note}`).join(' / ') };
+}
+function hasResult(e, sid) { return !!resultOf(e, sid); }
+function resultCount(e) { return perStore(e) ? participants(e).filter(id => storeResult(e, id)).length : (hasResult(e) ? 1 : 0); }
+function allEntered(e) { return perStore(e) ? (participants(e).every(id => storeResult(e, id)) || !!(e.result && e.result.entered)) : hasResult(e); }
 
 /**
  * 年度の初め(Q1)から q 四半期目までの累計。
@@ -1122,11 +1138,15 @@ function calList(y, m) {
       ${can('prep') ? `<td><input type="checkbox" data-act="prep-toggle" data-id="${e.id}" ${e.prepared ? 'checked' : ''} aria-label="準備完了"></td>` : ''}
       <td class="nowrap">${dateRange(e)}</td><td><span class="typetag ${typeClass(e)}"></span>${esc(e.name)}</td>
       <td class="nowrap">${esc(e.type)}</td><td>${esc(storeLabel(e))}</td>
-      ${money ? `<td class="num">${yen(budgetOf(e))}</td><td class="num">${yen(usedOf(e))}</td><td>${resultBadge(e)}</td>` : ''}</tr>`).join('')}
+      ${money ? `<td class="num">${yen(budgetOf(e))}</td><td class="num">${yen(usedOf(e))}</td><td>${resultBadge(e, 'all')}</td>` : ''}</tr>`).join('')}
   </table></div>`;
 }
-function resultBadge(e) {
-  if (hasResult(e)) return '<span class="badge ok">入力済み</span>';
+function resultBadge(e, sid) {
+  if (perStore(e) && (!sid || sid === 'all')) {
+    if (allEntered(e)) return '<span class="badge ok">入力済み</span>';
+    const n = resultCount(e);
+    if (n) return `<span class="badge warn">${n}/${participants(e).length}店 入力</span>`;
+  } else if (hasResult(e, sid)) return '<span class="badge ok">入力済み</span>';
   if (evEnd(e) < today()) return '<span class="badge warn">未入力</span>';
   return '<span class="badge gray">開催前</span>';
 }
@@ -1151,7 +1171,7 @@ function todoHtml() {
     const left = diffDays(td, i.due);
     const cls = i.done ? '' : left < 0 ? 'over' : left <= 3 ? 'soon' : '';
     const dueText = i.done ? md(i.due) : left < 0 ? `${md(i.due)} 期限切れ` : left === 0 ? '今日まで' : `${md(i.due)} あと${left}日`;
-    const auto = i.d.key === 'result' && hasResult(i.e);
+    const auto = i.d.key === 'result' && allEntered(i.e);
     return `<div class="todo-item ${i.done ? 'done' : ''}">
       <input type="checkbox" data-act="todo-check" data-id="${i.e.id}" data-k="${i.d.key}" ${i.done ? 'checked' : ''} ${auto ? 'disabled title="成果を入力したので自動で完了しています"' : ''} aria-label="${esc(i.d.label)}を完了にする">
       <div class="grow">
@@ -1436,15 +1456,15 @@ async function exportBudgetExcel() {
     set('E6', budget, 'E3-E4-E5');
 
     const amt = r => Math.round(r.amt);
-    const mine = evList().filter(e => e.start && participants(e).includes(sid) && hasResult(e));
+    const mine = evList().filter(e => e.start && participants(e).includes(sid) && hasResult(e, sid));
     const tot = { h: 0, j: 0, l: 0, n: 0 };
     [0, 1, 2].forEach(i => {
       const d = fromDS(range[0]); d.setUTCMonth(d.getUTCMonth() + i);
       const ym = toDS(d).slice(0, 7), m = d.getUTCMonth() + 1, r = 3 + i;
       const h = sum(rows.filter(x => x.date.slice(0, 7) === ym), amt);
       const evs = mine.filter(e => e.start.startsWith(ym));
-      const j = sum(evs.filter(e => category(e) === 'exhibit'), e => num(e.result.leads)); // 取得名簿数
-      const l = sum(evs.filter(e => category(e) === 'visit'), e => num(e.result.visits));  // 来場数
+      const j = sum(evs.filter(e => category(e) === 'exhibit'), e => num(resultOf(e, sid).leads)); // 取得名簿数
+      const l = sum(evs.filter(e => category(e) === 'visit'), e => num(resultOf(e, sid).visits));  // 来場数
       tot.h += h; tot.j += j; tot.l += l;
       set('G' + r, `${m}月使用`);
       set('H' + r, h, `SUMIF($B$${XL_FIRST}:$B$${last},"${m}月",$J$${XL_FIRST}:$J$${last})`);
@@ -1608,13 +1628,13 @@ function viewResponse() {
   const mine = evList().filter(e => e.start && participants(e).includes(sid));
   const evs = mine.filter(e => e.start >= range[0] && e.start <= range[1]);
   // 四半期に関係なく、終わったのに実績が入っていないイベント(直近4か月)
-  const pending = mine.filter(e => e.start <= td && !hasResult(e) && e.start >= addDays(td, -120));
+  const pending = mine.filter(e => e.start <= td && !hasResult(e, sid) && e.start >= addDays(td, -120));
   const btn = e => e.start > td ? '<span class="muted small-text">開催後に入力</span>'
-    : hasResult(e) ? `<button class="small" data-act="result-event" data-id="${e.id}">直す</button>`
-      : `<button class="primary small" data-act="result-event" data-id="${e.id}">入力する</button>`;
-  const done = evs.filter(hasResult);
+    : hasResult(e, sid) ? `<button class="small" data-act="result-event" data-id="${e.id}" data-store="${sid}">直す</button>`
+      : `<button class="primary small" data-act="result-event" data-id="${e.id}" data-store="${sid}">入力する</button>`;
+  const done = evs.filter(e => hasResult(e, sid));
   const visits = done.filter(e => category(e) === 'visit'), exh = done.filter(e => category(e) === 'exhibit');
-  const tv = (list, f) => sum(list, e => num(e.result[f]));
+  const tv = (list, f) => sum(list, e => num(resultOf(e, sid)[f]));
 
   const pendingHtml = pending.length ? `<div class="panel todo-panel">
     <h3>反響実績がまだ入っていないイベント(${pending.length}件)</h3>
@@ -1625,8 +1645,8 @@ function viewResponse() {
   const table = evs.length ? `<div class="table-wrap"><table>
       <tr><th>日付</th><th>イベント</th><th>状態</th><th>実績</th><th>備考</th><th></th></tr>
       ${evs.map(e => `<tr>
-        <td class="nowrap">${dateRange(e)}</td><td>${evCell(e)}</td><td>${resultBadge(e)}</td>
-        <td class="small-text">${resultSummary(e)}</td><td class="small-text note-cell">${esc((e.result || {}).note || '')}</td>
+        <td class="nowrap">${dateRange(e)}</td><td>${evCell(e)}</td><td>${resultBadge(e, sid)}</td>
+        <td class="small-text">${resultSummary(e, sid)}</td><td class="small-text note-cell">${esc((resultOf(e, sid) || {}).note || '')}</td>
         <td class="nowrap right">${btn(e)}</td></tr>`).join('')}
     </table></div>`
     : '<div class="muted small-text">この四半期にこの店舗のイベントはありません</div>';
@@ -1644,12 +1664,12 @@ function viewResponse() {
   <div class="panel">
     <h3>${esc(storeName(sid))} のイベントと反響実績</h3>
     ${table}
-    <p class="muted small-text">合同・全店共通イベントの数はイベント全体の数です(どこか1店舗がまとめて入力します)。</p>
+    <p class="muted small-text">合同・全店共通の来場型イベントは、店舗ごとに自分の店の数を入れます(分析シートで全店舗を選ぶと合計されます)。出展イベントはイベント全体の数をまとめて入れます。</p>
   </div>`;
 }
-function resultSummary(e) {
-  if (!hasResult(e)) return '';
-  const r = e.result;
+function resultSummary(e, sid) {
+  const r = resultOf(e, sid);
+  if (!r) return '';
   return category(e) === 'visit'
     ? `来場 <b>${num(r.visits)}</b>組(新規 ${num(r.newVisits)})/ 次回アポ <b>${num(r.appts)}</b>`
     : `名簿 <b>${num(r.leads)}</b>件 / アポ <b>${num(r.appts)}</b>`;
@@ -1755,32 +1775,58 @@ function expenseEditor(e) {
     <button class="small" style="margin-top:6px" data-act="exp-add" data-id="${e.id}">＋ 明細を追加</button>`;
 }
 
-// ---------------------------------------------------------------- 効果検証
+// ---------------------------------------------------------------- 分析シート
 function viewEffect() {
   const sid = state.eStore;
   const evs = eventsIn(periodRange(), sid);
   const uOf = e => sid === 'all' ? usedOf(e) : usedShare(e, sid);
   const visits = evs.filter(e => category(e) === 'visit');
   const exh = evs.filter(e => category(e) === 'exhibit');
-  const R = e => e.result || {};
-  const missing = evs.filter(e => !hasResult(e) && evEnd(e) < today()).length;
-  const tv = (list, f) => sum(list.filter(hasResult), e => num(R(e)[f]));
-  const vV = tv(visits, 'visits'), vN = tv(visits, 'newVisits'), vA = tv(visits, 'appts'), vU = sum(visits.filter(hasResult), uOf);
-  const xL = tv(exh, 'leads'), xA = tv(exh, 'appts'), xU = sum(exh.filter(hasResult), uOf);
-  const cell = (e, v) => hasResult(e) ? v : '';
+  const R = e => resultOf(e, sid) || {};
+  const hasR = e => hasResult(e, sid);
+  const missing = evs.filter(e => !hasR(e) && evEnd(e) < today()).length;
+  const tv = (list, f) => sum(list.filter(hasR), e => num(R(e)[f]));
+  const vV = tv(visits, 'visits'), vN = tv(visits, 'newVisits'), vA = tv(visits, 'appts'), vU = sum(visits.filter(hasR), uOf);
+  const xL = tv(exh, 'leads'), xA = tv(exh, 'appts'), xU = sum(exh.filter(hasR), uOf);
+  const cell = (e, v) => hasR(e) ? v : '';
+  const rowAttr = e => `class="clickable" data-act="result-event" data-id="${e.id}"${sid !== 'all' ? ` data-store="${sid}"` : ''}`;
+  // 種類ごとの合計
+  const byType = (types, list) => types.map(t => ({ t, all: list.filter(e => e.type === t) })).filter(x => x.all.length)
+    .map(x => Object.assign(x, { done: x.all.filter(hasR) }));
+  const vTypes = byType(VISIT_TYPES, visits), xTypes = byType(EXHIBIT_TYPES, exh);
+  const typeHtml = (vTypes.length || xTypes.length) ? `<div class="panel">
+    <h3>種類ごとの合計</h3>
+    ${vTypes.length ? `<div class="table-wrap"><table>
+      <tr><th>来場型の種類</th><th class="num">イベント数</th><th class="num">来場組数</th><th class="num">うち新規</th><th class="num">新規率</th><th class="num">次回アポ</th><th class="num">アポ率</th><th class="num">使用金額</th><th class="num">1組あたり</th></tr>
+      ${vTypes.map(x => { const v = tv(x.all, 'visits'), nn = tv(x.all, 'newVisits'), a = tv(x.all, 'appts'), u = sum(x.done, uOf); return `<tr>
+        <td><span class="typetag ${typeClass(x.all[0])}"></span>${esc(x.t)}</td><td class="num">${x.all.length}件<span class="muted small-text">(入力${x.done.length})</span></td>
+        <td class="num">${v}</td><td class="num">${nn}</td><td class="num">${pct(nn, v)}</td><td class="num">${a}</td><td class="num">${pct(a, v)}</td>
+        <td class="num">${yen(u)}</td><td class="num">${per(u, v)}</td></tr>`; }).join('')}
+      <tr class="total"><td>来場型 合計</td><td class="num">${visits.length}件<span class="muted small-text">(入力${visits.filter(hasR).length})</span></td><td class="num">${vV}</td><td class="num">${vN}</td><td class="num">${pct(vN, vV)}</td><td class="num">${vA}</td><td class="num">${pct(vA, vV)}</td><td class="num">${yen(vU)}</td><td class="num">${per(vU, vV)}</td></tr>
+    </table></div>` : ''}
+    ${xTypes.length ? `<div class="table-wrap" style="margin-top:12px"><table>
+      <tr><th>出展の種類</th><th class="num">イベント数</th><th class="num">名簿獲得数</th><th class="num">アポ数</th><th class="num">アポ率</th><th class="num">使用金額</th><th class="num">名簿1件あたり</th><th class="num">アポ1件あたり</th></tr>
+      ${xTypes.map(x => { const l = tv(x.all, 'leads'), a = tv(x.all, 'appts'), u = sum(x.done, uOf); return `<tr>
+        <td><span class="typetag ${typeClass(x.all[0])}"></span>${esc(x.t)}</td><td class="num">${x.all.length}件<span class="muted small-text">(入力${x.done.length})</span></td>
+        <td class="num">${l}</td><td class="num">${a}</td><td class="num">${pct(a, l)}</td><td class="num">${yen(u)}</td><td class="num">${per(u, l)}</td><td class="num">${per(u, a)}</td></tr>`; }).join('')}
+      <tr class="total"><td>出展 合計</td><td class="num">${exh.length}件<span class="muted small-text">(入力${exh.filter(hasR).length})</span></td><td class="num">${xL}</td><td class="num">${xA}</td><td class="num">${pct(xA, xL)}</td><td class="num">${yen(xU)}</td><td class="num">${per(xU, xL)}</td><td class="num">${per(xU, xA)}</td></tr>
+    </table></div>` : ''}
+    <p class="muted small-text" style="margin:6px 0 0">数と使用金額は、実績が入っているイベントだけで計算しています。</p>
+  </div>` : '';
   const notes = e => { // 備考(以前の「良かった点・改善点」が残っていればそれも表示)
     const r = R(e);
     return [r.note ? esc(r.note) : '', r.good ? `<b>良</b> ${esc(r.good)}` : '', r.improve ? `<b>改</b> ${esc(r.improve)}` : ''].filter(Boolean).join('<br>');
   };
   return `
   <div class="view-head">${periodHtml()}${storeSelect('e-store', 'e-store', sid, true)}</div>
-  ${missing ? `<div class="banner warn" style="background:var(--warn-weak);color:var(--warn)">終わったのに成果が未入力のイベントが ${missing} 件あります</div>` : ''}
+  ${missing ? `<div class="banner warn" style="background:var(--warn-weak);color:var(--warn)">終わったのに反響実績が未入力のイベントが ${missing} 件あります</div>` : ''}
+  ${typeHtml}
   <div class="panel">
     <h3>来場型イベント</h3>
     ${visits.length ? `<div class="table-wrap"><table>
       <tr><th>日付</th><th>イベント名</th><th>店舗</th><th>状態</th><th class="num">来場組数</th><th class="num">うち新規</th><th class="num">新規率</th><th class="num">次回アポ</th><th class="num">アポ率</th><th class="num">使用金額</th><th class="num">1組あたり</th><th>備考</th></tr>
-      ${visits.map(e => { const r = R(e); return `<tr class="clickable" data-act="result-event" data-id="${e.id}">
-        <td class="nowrap">${dateRange(e)}</td><td>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}</span></td><td>${esc(storeLabel(e))}</td><td>${resultBadge(e)}</td>
+      ${visits.map(e => { const r = R(e); return `<tr ${rowAttr(e)}>
+        <td class="nowrap">${dateRange(e)}</td><td>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}</span></td><td>${esc(storeLabel(e))}</td><td>${resultBadge(e, sid)}</td>
         <td class="num">${cell(e, num(r.visits))}</td><td class="num">${cell(e, num(r.newVisits))}</td><td class="num">${cell(e, pct(num(r.newVisits), num(r.visits)))}</td>
         <td class="num">${cell(e, num(r.appts))}</td><td class="num">${cell(e, pct(num(r.appts), num(r.visits)))}</td>
         <td class="num">${yen(uOf(e))}</td><td class="num">${cell(e, per(uOf(e), num(r.visits)))}</td><td class="small-text">${notes(e)}</td></tr>`; }).join('')}
@@ -1791,14 +1837,16 @@ function viewEffect() {
     <h3>出展イベント</h3>
     ${exh.length ? `<div class="table-wrap"><table>
       <tr><th>日付</th><th>イベント名</th><th>店舗</th><th>状態</th><th class="num">名簿獲得数</th><th class="num">アポ数</th><th class="num">アポ率</th><th class="num">使用金額</th><th class="num">名簿1件あたり</th><th class="num">アポ1件あたり</th><th>備考</th></tr>
-      ${exh.map(e => { const r = R(e); return `<tr class="clickable" data-act="result-event" data-id="${e.id}">
-        <td class="nowrap">${dateRange(e)}</td><td>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}</span></td><td>${esc(storeLabel(e))}</td><td>${resultBadge(e)}</td>
+      ${exh.map(e => { const r = R(e); return `<tr ${rowAttr(e)}>
+        <td class="nowrap">${dateRange(e)}</td><td>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}</span></td><td>${esc(storeLabel(e))}</td><td>${resultBadge(e, sid)}</td>
         <td class="num">${cell(e, num(r.leads))}</td><td class="num">${cell(e, num(r.appts))}</td><td class="num">${cell(e, pct(num(r.appts), num(r.leads)))}</td>
         <td class="num">${yen(uOf(e))}</td><td class="num">${cell(e, per(uOf(e), num(r.leads)))}</td><td class="num">${cell(e, per(uOf(e), num(r.appts)))}</td><td class="small-text">${notes(e)}</td></tr>`; }).join('')}
       <tr class="total"><td colspan="4">合計(入力済みのみ)</td><td class="num">${xL}</td><td class="num">${xA}</td><td class="num">${pct(xA, xL)}</td><td class="num">${yen(xU)}</td><td class="num">${per(xU, xL)}</td><td class="num">${per(xU, xA)}</td><td></td></tr>
     </table></div>` : '<div class="empty">この期間の出展イベントはありません</div>'}
   </div>
-  <p class="muted small-text">行をクリックすると成果を入力できます。${sid !== 'all' ? '店舗で絞り込んだときの使用金額は按分した額です(成果の数はイベント全体の数)。' : ''}</p>`;
+  <p class="muted small-text">行をクリックすると反響実績を入力できます。${sid !== 'all'
+    ? '店舗で絞り込んだときは、使用金額は按分したこの店舗の分、来場型の合同・全店共通イベントはこの店舗が入れた数です(出展イベントはイベント全体の数)。'
+    : '合同・全店共通の来場型イベントは、各店舗が入れた数を合計しています。'}</p>`;
 }
 
 // ---------------------------------------------------------------- アカウント管理
@@ -2023,9 +2071,13 @@ MODALS.evBudget = m => {
 };
 
 // ---------------------------------------------------------------- 成果
-function openResultModal(id) {
+function openResultModal(id, sid) {
   const e = getEvent(id); if (!e) return;
-  openModal({ kind: 'result', id, draft: clone(e.result || {}) });
+  if (!perStore(e)) return openModal({ kind: 'result', id, draft: clone(e.result || {}) });
+  // 店舗ごとに入れるイベント:開いた画面の店舗 → 自分の店舗 → 最初の参加店舗
+  const ps = participants(e);
+  const s0 = [sid, session.user.storeId, state.uStore, state.eStore].find(x => x && ps.includes(x)) || ps[0];
+  openModal({ kind: 'result', id, sid: s0, draft: clone(getDoc(`results/${id}~${s0}`) || {}) });
 }
 MODALS.result = m => {
   const e = getEvent(m.id); const r = m.draft;
@@ -2042,7 +2094,9 @@ MODALS.result = m => {
   return `<h2>反響実績を入力</h2>
     <div class="rs-ev"><span class="typetag ${typeClass(e)}"></span><b>${esc(e.name)}</b><br>
       <span class="muted small-text">${dateRange(e)} / ${esc(storeLabel(e))} / ${esc(e.type)}</span></div>
-    ${isSingle(e) ? '' : '<div class="note">合同・全店共通のイベントです。<b>イベント全体の数</b>を入れてください(どこか1店舗がまとめて入力します)。</div>'}
+    ${m.sid ? `<div class="note">合同・全店共通のイベントです。<b>店舗ごと</b>に、その店舗の数を入れてください(全体は自動で合計されます)。</div>
+      <label><span>どの店舗の実績ですか?</span><select id="rs-store" data-act="rs-store">${participants(e).map(id => `<option value="${id}" ${id === m.sid ? 'selected' : ''}>${esc(storeName(id))}${storeResult(e, id) ? '(入力済み)' : ''}</option>`).join('')}</select></label>`
+      : isSingle(e) ? '' : '<div class="note">合同・全店共通の出展イベントです。<b>イベント全体の数</b>をまとめて入れてください。</div>'}
     ${fields}
     <label><span>備考(任意)</span><textarea id="rs-note" placeholder="気づいたこと・連絡事項など">${esc(r.note || '')}</textarea></label>
     ${r.enteredBy ? `<p class="muted small-text">最終入力:${esc(r.enteredBy)} ${fmtDT(r.enteredAt)}</p>` : ''}
@@ -2270,7 +2324,7 @@ CH['prep-toggle'] = el => {
   e.prepared = el.checked;
   saveDoc('events/' + e.id, e, el.checked ? '準備完了にしました' : '準備完了を外しました');
 };
-C['result-event'] = el => openResultModal(el.dataset.id);
+C['result-event'] = el => openResultModal(el.dataset.id, el.dataset.store);
 C['day-new'] = el => openEventModal(null, { start: el.dataset.date });
 C.track = (el, ev) => {
   const rect = el.getBoundingClientRect();
@@ -2611,17 +2665,26 @@ C['al-save'] = () => {
 };
 
 // 成果モーダル
+CH['rs-store'] = el => {
+  const m = topModal();
+  m.sid = el.value; m.draft = clone(getDoc(`results/${m.id}~${m.sid}`) || {});
+  renderModal();
+};
 C['rs-save'] = () => {
   const m = topModal();
   const e = clone(getEvent(m.id)); if (!e) return closeModal();
   const v = id => $(id) ? ($(id).value === '' ? '' : num($(id).value)) : undefined;
-  const r = Object.assign({}, e.result, { entered: true, enteredBy: session.user.name, enteredAt: new Date().toISOString(), note: $('rs-note').value });
+  const r = Object.assign({}, m.sid ? getDoc(`results/${m.id}~${m.sid}`) : e.result, { entered: true, enteredBy: session.user.name, enteredAt: new Date().toISOString(), note: $('rs-note').value });
   if (category(e) === 'visit') {
     Object.assign(r, { visits: v('rs-visits'), newVisits: v('rs-new'), appts: v('rs-appts') });
     if (num(r.newVisits) > num(r.visits)) return modalErr('「うち新規」が来場組数より多くなっています');
   } else Object.assign(r, { leads: v('rs-leads'), appts: v('rs-appts') });
-  e.result = r;
   closeModal();
+  if (m.sid) { // 店舗ごとの実績は別々に保存(同時に入力しても消し合わない)
+    Object.assign(r, { eventId: e.id, storeId: m.sid });
+    return saveDoc(`results/${e.id}~${m.sid}`, r, `${storeName(m.sid)}の反響実績を保存しました`);
+  }
+  e.result = r;
   saveDoc('events/' + e.id, e, '反響実績を保存しました');
 };
 
