@@ -257,6 +257,14 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .modal .rs-in input{font-size:20px;font-weight:700;padding:6px 10px}
 .rs-in em{font-style:normal;color:var(--muted)}
 input.money{text-align:right}
+/* レポート */
+.rep-form{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;margin-bottom:6px}
+.rep-form label span,.rep-form .lbl{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.rep-period{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.rep-quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.rep-slides{margin:4px 0 12px}
+.rep-slides .lbl{font-size:12px;font-weight:600;color:var(--muted)}
+.rep-slides ol{margin:4px 0 0;padding-left:22px;columns:2;font-size:14px}
 /* 予算管理のグラフ(表+消化率の横棒) */
 .bh-kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:12px}
 .bh-kpi>div{background:var(--light,#f4f6fa);background:#f7f9fc;border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:2px}
@@ -402,7 +410,7 @@ function permOfAct(act) { return Object.keys(PERM_ACTS).find(p => PERM_ACTS[p].i
 function actAllowed(act) { const p = permOfAct(act); return !p || can(p); }
 function tabsForRole() {
   if (myRole() === 'vendor') return TABS.filter(t => t[0] === 'calendar');
-  return myRole() === 'admin' ? TABS.concat([['accounts', 'アカウント管理']]) : TABS;
+  return myRole() === 'admin' ? TABS.concat([['report', 'レポート'], ['accounts', 'アカウント管理']]) : TABS;
 }
 /** できない操作のボタンを隠す(行のクリックは無効にするだけで行は見せる) */
 function applyPermStyle() {
@@ -1009,8 +1017,8 @@ const state = Object.assign({
 }, lsJSON('evt-ui', {}));
 state.users = null; state.accQ = ''; state.accRole = ''; state.accConfirm = null; state.open = {};
 function saveUi() {
-  const { tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uFy, uQ, defaultsFor, bView } = state;
-  lsSet('evt-ui', JSON.stringify({ tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uFy, uQ, defaultsFor, bView }));
+  const { tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uFy, uQ, defaultsFor, bView, rep } = state;
+  lsSet('evt-ui', JSON.stringify({ tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uFy, uQ, defaultsFor, bView, rep }));
 }
 const isHidden = sid => state.hidden.includes(sid);
 function visibleByFilter(e) { return isAll(e) || (e.stores || []).some(id => !isHidden(id)) || !(e.stores || []).some(storeById); }
@@ -1106,6 +1114,7 @@ function mainHtml() {
     case 'effect': return viewEffect();
     case 'budget': return viewBudget();
     case 'accounts': return viewAccounts();
+    case 'report': return viewReport();
     default: return viewCalendar();
   }
 }
@@ -2027,6 +2036,264 @@ function viewBudgetChart() {
   <p class="muted small-text">着地見込み = 実績 ＋ 配分予算。終わった四半期は実績だけ、今と先の四半期はイベントごとに「費用が入っていれば実績、まだなら配分した予算」で数えます(イベント以外の費用は実績)。行にマウスを乗せると内訳が出ます。</p>`;
 }
 
+// ---------------------------------------------------------------- レポート(管理者だけ):指定した期間を PowerPoint(横)で出力
+const PPTX_LIB = 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';
+function repState() {
+  const r = state.rep || (state.rep = {});
+  const fy = fyOf(today()), q = qOf(today());
+  if (!r.fy1) Object.assign(r, { fy1: fy, q1: q, fy2: fy, q2: q });
+  if (!r.sid || !(r.sid === 'all' || validScope(r.sid))) r.sid = 'all';
+  return r;
+}
+/** 開始〜終了の四半期の一覧(開始が後なら入れ替える) */
+function repQuarters(r) {
+  let a = r.fy1 * 4 + r.q1 - 1, b = r.fy2 * 4 + r.q2 - 1;
+  if (a > b) [a, b] = [b, a];
+  const out = []; for (let n = a; n <= b && out.length < 12; n++) out.push([Math.floor(n / 4), n % 4 + 1]);
+  return out;
+}
+function repLabel(qs) {
+  const f = qs[0], l = qs[qs.length - 1];
+  const r = [quarterRange(...f)[0], quarterRange(...l)[1]];
+  const name = qs.length === 1 ? `${kiLabel(f[0])} ${Q_LABEL[f[1]]}` : qs.length === 4 && f[1] === 1 && f[0] === l[0] ? `${kiLabel(f[0])} 通期`
+    : `${f[0] - 1990}期 Q${f[1]} 〜 ${l[0] - 1990}期 Q${l[1]}`;
+  return { name, range: r, text: `${ymd(r[0])} 〜 ${ymd(r[1])}` };
+}
+/** レポートの中身(画面のプレビューと PowerPoint の両方で使う) */
+function reportData(sid, qs) {
+  const lab = repLabel(qs), range = lab.range;
+  const ids = scopeIds(sid);
+  const total = statOver(ids, qs);
+  // 内訳の行:全店→ブロックと店舗、ブロック→店舗、店舗・合算→四半期
+  let rows = [], rowKind = '';
+  if (sid === 'all') { rowKind = '店舗'; rows = storesOrdered().map(s => ({ name: s.name, t: statOver([s.id], qs) })); }
+  else if (blockById(sid)) { rowKind = '店舗'; rows = ids.map(id => ({ name: storeName(id), t: statOver([id], qs) })); }
+  else if (qs.length > 1) { rowKind = '四半期'; rows = qs.map(([fy, q]) => ({ name: `${fy - 1990}期 Q${q}`, t: statOver(ids, [[fy, q]]) })); }
+  const blocksRows = sid === 'all' ? blocks().map(b => ({ name: b.name, t: statOver(stores().filter(s => s.blockId === b.id).map(s => s.id), qs) })).filter(x => x.t.budget || x.t.used) : [];
+  const quarterRows = qs.length > 1 ? qs.map(([fy, q]) => ({ name: `${fy - 1990}期 Q${q}`, t: statOver(ids, [[fy, q]]) })) : [];
+  // イベント
+  const evs = eventsIn(range, sid);
+  const td = today();
+  const evRows = evs.map(e => {
+    const r = resultOf(e, sid) || {};
+    return { e, budget: sid === 'all' ? budgetOf(e) : shareOf(e, sid), used: sid === 'all' ? usedOf(e) : usedShare(e, sid), r, has: hasResult(e, sid), done: evEnd(e) < td };
+  });
+  // 反響(種類ごと)
+  const typeRows = (types, cat) => types.map(t => {
+    const list = evRows.filter(x => x.e.type === t && category(x.e) === cat), d = list.filter(x => x.has);
+    const f = k => sum(d, x => num(x.r[k]));
+    return { t, n: list.length, nd: d.length, visits: f('visits'), newVisits: f('newVisits'), appts: f('appts'), leads: f('leads'), used: sum(d, x => x.used) };
+  }).filter(x => x.n);
+  const vTypes = typeRows(VISIT_TYPES, 'visit'), xTypes = typeRows(EXHIBIT_TYPES, 'exhibit');
+  const tsum = (list, k) => sum(list, x => x[k]);
+  // 項目ごと(実績)
+  const byItem = {};
+  evs.forEach(e => (e.expenses || []).filter(x => expMine(e, x, sid)).forEach(x => { const k = x.costItemId || ''; byItem[k] = (byItem[k] || 0) + expShare(e, x, sid); }));
+  const others = othersIn(range, sid);
+  others.forEach(c => { const k = c.costItemId || ''; byItem[k] = (byItem[k] || 0) + num(c.amount); });
+  const items = Object.keys(byItem).map(k => ({ name: k ? costName(k) : '(項目なし)', v: byItem[k] })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+  return {
+    sid, name: sid === 'all' ? '全店' : storeName(sid), lab, total, rows, rowKind, blocksRows, quarterRows, evRows, vTypes, xTypes, items,
+    othersTotal: sum(others, c => num(c.amount)),
+    kpi: { visits: tsum(vTypes, 'visits'), newVisits: tsum(vTypes, 'newVisits'), vAppts: tsum(vTypes, 'appts'), leads: tsum(xTypes, 'leads'), xAppts: tsum(xTypes, 'appts'),
+      events: evRows.length, doneEvents: evRows.filter(x => x.done).length },
+    overEvents: evRows.filter(x => x.budget > 0 && x.used > x.budget),
+    missing: evRows.filter(x => x.done && !x.has)
+  };
+}
+
+function viewReport() {
+  const r = repState(), qs = repQuarters(r), d = reportData(r.sid, qs);
+  const qSel = (k) => `<select id="rep-fy${k}" data-act="rep-fy" data-k="${k}">${fyOptions(r['fy' + k])}</select>
+    <select id="rep-q${k}" data-act="rep-q" data-k="${k}">${[1, 2, 3, 4].map(q => `<option value="${q}" ${q === r['q' + k] ? 'selected' : ''}>${Q_LABEL[q]}</option>`).join('')}</select>`;
+  const t = d.total, over = t.budget > 0 && t.used > t.budget;
+  const slides = ['表紙', 'サマリー', '予算対比' + (d.blocksRows.length ? '(ブロック・店舗)' : d.rows.length ? `(${d.rowKind}ごと)` : ''),
+    d.quarterRows.length ? '四半期ごとの推移' : '', '反響実績(種類ごと)', `イベント一覧(${d.evRows.length}件)`, '項目ごとの使用金額', '要確認(予算超過・反響未入力)'].filter(Boolean);
+  return `
+  <div class="panel">
+    <h3>レポートを作る</h3>
+    <div class="rep-form">
+      <label><span>対象</span>${storeSelect('rep-store', 'rep-store', r.sid, true, null, true, true)}</label>
+      <div><span class="lbl">期間(四半期単位)</span>
+        <div class="rep-period">${qSel(1)}<span>〜</span>${qSel(2)}</div>
+        <div class="rep-quick"><button class="small" data-act="rep-quick" data-v="q">今の四半期</button><button class="small" data-act="rep-quick" data-v="fy">今期(通期)</button><button class="small" data-act="rep-quick" data-v="ytd">今期の初めから今まで</button><button class="small" data-act="rep-quick" data-v="prev">前の四半期</button></div>
+      </div>
+    </div>
+    <p class="muted small-text">${esc(d.name)} / ${esc(d.lab.name)}(${esc(d.lab.text)})</p>
+    <div class="bh-kpi">
+      <div><span class="lbl">予算</span><b>${t.budget ? yen(t.budget) : '未設定'}</b></div>
+      <div><span class="lbl">着地見込み</span><b class="${over ? 'red' : ''}">${yen(t.used)}</b><span class="muted small-text">実績 ${yen(t.actual)} ＋ 配分予算 ${yen(t.planned)}</span></div>
+      <div><span class="lbl">来場組数(うち新規)</span><b>${d.kpi.visits}組</b><span class="muted small-text">新規 ${d.kpi.newVisits}組 / 次回アポ ${d.kpi.vAppts}組</span></div>
+      <div><span class="lbl">出展の名簿獲得</span><b>${d.kpi.leads}件</b><span class="muted small-text">アポ ${d.kpi.xAppts}件</span></div>
+    </div>
+    <div class="rep-slides"><span class="lbl">スライドの内容(横・16:9)</span><ol>${slides.map(s => `<li>${esc(s)}</li>`).join('')}</ol></div>
+    <button class="primary big" data-act="rep-pptx">PowerPointで出力</button>
+    <span class="muted small-text" style="margin-left:8px">グラフは PowerPoint のグラフなので、出力後に数字や色を直せます。</span>
+  </div>`;
+}
+
+async function exportReportPptx() {
+  const r = repState(), qs = repQuarters(r), d = reportData(r.sid, qs);
+  setBusy(1);
+  try {
+    if (!window.PptxGenJS) await loadScript(PPTX_LIB);
+    const pres = new window.PptxGenJS();
+    pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5(横)
+    pres.title = `${d.name} レポート ${d.lab.name}`;
+    const FONT = 'Meiryo UI';
+    pres.theme = { headFontFace: FONT, bodyFontFace: FONT };
+    const C = { navy: '23344D', blue: '5A86C8', pale: 'B9CFEE', red: 'C0645E', redPale: 'E48C85', text: '1F2933', muted: '69737F', line: 'D9DEE6', bg: 'F4F6FA' };
+    const FOOT = `HEALTHYHOME 店舗イベント管理 β版 レポート / ${d.name} / ${d.lab.name}`;
+    pres.defineSlideMaster({ title: 'CONTENT', background: { color: 'FFFFFF' },
+      objects: [{ text: { text: FOOT, options: { x: 0.5, y: 7.05, w: 10, h: 0.3, fontSize: 9, color: '8B9BB0', fontFace: FONT } } }],
+      slideNumber: { x: 12.4, y: 7.05, w: 0.5, h: 0.3, fontSize: 9, color: '8B9BB0', align: 'right' } });
+    const title = (s, t, sub) => {
+      s.addText(t, { x: 0.5, y: 0.3, w: 12.3, h: 0.7, fontSize: 26, bold: true, color: C.navy, fontFace: FONT, margin: 0 });
+      if (sub) s.addText(sub, { x: 0.5, y: 0.95, w: 12.3, h: 0.35, fontSize: 12, color: C.muted, fontFace: FONT, margin: 0 });
+    };
+    const Y = v => yen(v), P = (a, b) => pct(a, b);
+    const tblOpts = (x, y, w, colW) => ({ x, y, w, colW, fontFace: FONT, fontSize: 11, color: C.text, border: { type: 'solid', pt: 0.5, color: C.line }, valign: 'middle', autoPage: false, rowH: 0.32, margin: [2, 6, 2, 6] });
+    const H = (t, right) => ({ text: t, options: { bold: true, fill: { color: 'EEF2F8' }, color: C.muted, fontSize: 10, align: right ? 'right' : 'left' } });
+    const R = (t, o = {}) => ({ text: String(t), options: Object.assign({ align: 'right' }, o) });
+    const L = (t, o = {}) => ({ text: String(t), options: o });
+    const statRow = (name, t, bold) => {
+      const o = bold ? { bold: true, fill: { color: 'F7F8FA' } } : {};
+      const ov = t.budget > 0 && t.used > t.budget;
+      return [L(name, o), R(t.budget ? Y(t.budget) : '—', o), R(Y(t.actual), o), R(Y(t.planned), o), R(Y(t.used), Object.assign({}, o, { bold: true })),
+        R(t.budget ? Y(t.budget - t.used) : '—', Object.assign({}, o, ov ? { color: C.red } : {})), R(t.budget ? P(t.used, t.budget) : '—', Object.assign({}, o, ov ? { color: C.red, bold: true } : {}))];
+    };
+    const statHead = k => [H(k), H('予算', 1), H('実績', 1), H('配分予算', 1), H('着地見込み', 1), H('残り', 1), H('消化率', 1)];
+
+    // 1 表紙
+    { const s = pres.addSlide(); s.background = { color: C.navy };
+      s.addText('HEALTHYHOME', { x: 0.8, y: 1.6, w: 11, h: 0.5, fontSize: 16, bold: true, color: '8FB0E0', charSpacing: 4, fontFace: FONT });
+      s.addText('店舗イベント管理 レポート', { x: 0.8, y: 2.1, w: 11.5, h: 1.0, fontSize: 40, bold: true, color: 'FFFFFF', fontFace: FONT });
+      s.addText(`${d.name}　${d.lab.name}`, { x: 0.8, y: 3.2, w: 11.5, h: 0.7, fontSize: 24, color: 'FFFFFF', fontFace: FONT });
+      s.addText(`${d.lab.text}\n作成:${ymd(today())}　${session.user.name}`, { x: 0.8, y: 4.1, w: 11.5, h: 1.0, fontSize: 14, color: 'C9D6EA', fontFace: FONT }); }
+
+    // 2 サマリー
+    { const s = pres.addSlide({ masterName: 'CONTENT' }); title(s, 'サマリー', `${d.name} / ${d.lab.name}(${d.lab.text})`);
+      const t = d.total, ov = t.budget > 0 && t.used > t.budget;
+      const tiles = [['予算', t.budget ? Y(t.budget) : '未設定', ''], ['着地見込み', Y(t.used), `実績 ${Y(t.actual)} ＋ 配分予算 ${Y(t.planned)}`],
+        ['残り', t.budget ? Y(t.budget - t.used) : '—', ''], ['消化率', P(t.used, t.budget), `実績だけなら ${P(t.actual, t.budget)}`]];
+      tiles.forEach((x, i) => { const X = 0.5 + i * 3.1;
+        s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: X, y: 1.5, w: 2.9, h: 1.7, rectRadius: 0.08, fill: { color: C.bg }, line: { type: 'none' } });
+        s.addText(x[0], { x: X + 0.2, y: 1.6, w: 2.5, h: 0.35, fontSize: 12, color: C.muted, fontFace: FONT, margin: 0 });
+        s.addText(x[1], { x: X + 0.2, y: 1.95, w: 2.6, h: 0.7, fontSize: 26, bold: true, color: (i && ov && i !== 0) ? C.red : C.text, fontFace: FONT, margin: 0 });
+        if (x[2]) s.addText(x[2], { x: X + 0.2, y: 2.65, w: 2.6, h: 0.45, fontSize: 10, color: C.muted, fontFace: FONT, margin: 0 }); });
+      // 消化率の棒
+      if (t.budget) { const W = 12.1, scale = Math.max(t.budget, t.used), bx = 0.5, by = 3.5;
+        s.addShape(pres.shapes.RECTANGLE, { x: bx, y: by, w: W, h: 0.35, fill: { color: 'E5E9EF' }, line: { type: 'none' } });
+        s.addShape(pres.shapes.RECTANGLE, { x: bx, y: by, w: Math.max(0.01, W * t.actual / scale), h: 0.35, fill: { color: C.blue }, line: { type: 'none' } });
+        if (t.planned) s.addShape(pres.shapes.RECTANGLE, { x: bx + W * t.actual / scale, y: by, w: Math.max(0.01, W * t.planned / scale), h: 0.35, fill: { color: ov ? C.redPale : C.pale }, line: { type: 'none' } });
+        s.addShape(pres.shapes.LINE, { x: bx + W * t.budget / scale, y: by - 0.12, w: 0, h: 0.6, line: { color: C.text, width: 2 } });
+        s.addText('■ 実績　■ 配分予算(まだ費用が入っていないイベント)　｜ 予算', { x: bx, y: by + 0.45, w: W, h: 0.3, fontSize: 10, color: C.muted, fontFace: FONT, margin: 0 }); }
+      const k = d.kpi;
+      const tiles2 = [['イベント数', `${k.events}件`, `うち終了 ${k.doneEvents}件`], ['来場組数(来場型)', `${k.visits}組`, `新規 ${k.newVisits}組(${P(k.newVisits, k.visits)})`],
+        ['次回アポ(来場型)', `${k.vAppts}組`, `アポ率 ${P(k.vAppts, k.visits)}`], ['名簿獲得(出展)', `${k.leads}件`, `アポ ${k.xAppts}件`]];
+      tiles2.forEach((x, i) => { const X = 0.5 + i * 3.1;
+        s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: X, y: 4.55, w: 2.9, h: 1.6, rectRadius: 0.08, fill: { color: 'FFFFFF' }, line: { color: C.line, width: 0.75 } });
+        s.addText(x[0], { x: X + 0.2, y: 4.65, w: 2.5, h: 0.35, fontSize: 12, color: C.muted, fontFace: FONT, margin: 0 });
+        s.addText(x[1], { x: X + 0.2, y: 5.0, w: 2.6, h: 0.6, fontSize: 24, bold: true, color: C.text, fontFace: FONT, margin: 0 });
+        s.addText(x[2], { x: X + 0.2, y: 5.6, w: 2.6, h: 0.4, fontSize: 10, color: C.muted, fontFace: FONT, margin: 0 }); }); }
+
+    // 3 予算対比(ブロック・店舗)
+    const barChart = (s, rows, x, y, w, h) => {
+      const labels = rows.map(r => r.name).reverse();
+      s.addChart(pres.charts.BAR, [
+        { name: '予算', labels, values: rows.map(r => r.t.budget).reverse() },
+        { name: '着地見込み', labels, values: rows.map(r => r.t.used).reverse() }],
+        { x, y, w, h, barDir: 'bar', barGrouping: 'clustered', chartColors: ['C8D1DE', C.blue], barGapWidthPct: 60,
+          showLegend: true, legendPos: 't', legendFontSize: 10, legendFontFace: FONT,
+          catAxisLabelFontSize: 10, catAxisLabelFontFace: FONT, catAxisLabelColor: C.text, valAxisLabelFontSize: 9, valAxisLabelColor: C.muted,
+          valAxisLabelFormatCode: '#,##0,', showValAxisTitle: true, valAxisTitle: '千円', valAxisTitleFontSize: 9, valAxisTitleColor: C.muted,
+          valGridLine: { color: 'E5E9EF', size: 0.5 }, catGridLine: { style: 'none' } });
+    };
+    if (d.blocksRows.length) {
+      const s = pres.addSlide({ masterName: 'CONTENT' }); title(s, 'ブロックごとの予算対比', `${d.lab.name} / 店舗の積み上げ`);
+      barChart(s, d.blocksRows, 0.4, 1.4, 4.3, 5.4);
+      s.addTable([statHead('ブロック'), ...d.blocksRows.map(x => statRow(x.name, x.t)), statRow('全店 合計', d.total, true)], Object.assign(tblOpts(4.85, 1.5, 8.05, [1.3, 1.2, 1.1, 1.1, 1.25, 1.15, 0.95]), { fontSize: 10.5 }));
+    }
+    if (d.rows.length) {
+      const s = pres.addSlide({ masterName: 'CONTENT' }); title(s, `${d.rowKind}ごとの予算対比`, `${d.name} / ${d.lab.name}`);
+      barChart(s, d.rows, 0.4, 1.4, 4.3, 5.4);
+      s.addTable([statHead(d.rowKind), ...d.rows.map(x => statRow(x.name, x.t)), statRow('合計', d.total, true)], Object.assign(tblOpts(4.85, 1.5, 8.05, [1.3, 1.2, 1.1, 1.1, 1.25, 1.15, 0.95]), { fontSize: 10.5 }));
+    }
+    // 4 四半期ごとの推移
+    if (d.quarterRows.length && d.rowKind !== '四半期') {
+      const s = pres.addSlide({ masterName: 'CONTENT' }); title(s, '四半期ごとの推移', `${d.name} / ${d.lab.name}`);
+      const labels = d.quarterRows.map(x => x.name);
+      s.addChart(pres.charts.BAR, [{ name: '予算', labels, values: d.quarterRows.map(x => x.t.budget) }, { name: '着地見込み', labels, values: d.quarterRows.map(x => x.t.used) }],
+        { x: 0.4, y: 1.4, w: 4.3, h: 5.3, barDir: 'col', barGrouping: 'clustered', chartColors: ['C8D1DE', C.blue], showLegend: true, legendPos: 't', legendFontFace: FONT, legendFontSize: 10,
+          catAxisLabelFontFace: FONT, catAxisLabelFontSize: 10, valAxisLabelFontSize: 9, valAxisLabelFormatCode: '#,##0,', showValAxisTitle: true, valAxisTitle: '千円', valAxisTitleFontSize: 9, valAxisTitleColor: C.muted, valGridLine: { color: 'E5E9EF', size: 0.5 }, catGridLine: { style: 'none' } });
+      s.addTable([statHead('四半期'), ...d.quarterRows.map(x => statRow(x.name, x.t)), statRow('合計', d.total, true)], Object.assign(tblOpts(4.85, 1.5, 8.05, [1.3, 1.2, 1.1, 1.1, 1.25, 1.15, 0.95]), { fontSize: 10.5 }));
+    }
+    // 5 反響実績(種類ごと)
+    { const s = pres.addSlide({ masterName: 'CONTENT' }); title(s, '反響実績(種類ごと)', `${d.name} / ${d.lab.name} / 数と使用金額は実績が入っているイベントだけ`);
+      let y = 1.5;
+      if (d.vTypes.length) {
+        const rows = d.vTypes.map(x => [L(x.t), R(`${x.n}件(入力${x.nd})`), R(x.visits), R(x.newVisits), R(P(x.newVisits, x.visits)), R(x.appts), R(P(x.appts, x.visits)), R(Y(x.used)), R(per(x.used, x.visits))]);
+        const tv = k => sum(d.vTypes, x => x[k]);
+        rows.push([L('来場型 合計', { bold: true }), R(`${tv('n')}件(入力${tv('nd')})`, { bold: true }), R(tv('visits'), { bold: true }), R(tv('newVisits'), { bold: true }), R(P(tv('newVisits'), tv('visits')), { bold: true }),
+          R(tv('appts'), { bold: true }), R(P(tv('appts'), tv('visits')), { bold: true }), R(Y(tv('used')), { bold: true }), R(per(tv('used'), tv('visits')), { bold: true })]);
+        s.addTable([[H('来場型の種類'), H('イベント数', 1), H('来場組数', 1), H('うち新規', 1), H('新規率', 1), H('次回アポ', 1), H('アポ率', 1), H('使用金額', 1), H('1組あたり', 1)], ...rows],
+          Object.assign(tblOpts(0.5, y, 12.3, [2.2, 1.5, 1.1, 1.1, 1.0, 1.1, 1.0, 1.4, 1.9]), { autoPage: false }));
+        y += 0.42 * (rows.length + 1) + 0.4;
+      }
+      if (d.xTypes.length) {
+        const rows = d.xTypes.map(x => [L(x.t), R(`${x.n}件(入力${x.nd})`), R(x.leads), R(x.appts), R(P(x.appts, x.leads)), R(Y(x.used)), R(per(x.used, x.leads)), R(per(x.used, x.appts))]);
+        s.addTable([[H('出展の種類'), H('イベント数', 1), H('名簿獲得数', 1), H('アポ数', 1), H('アポ率', 1), H('使用金額', 1), H('名簿1件あたり', 1), H('アポ1件あたり', 1)], ...rows],
+          Object.assign(tblOpts(0.5, y, 12.3, [2.2, 1.6, 1.4, 1.2, 1.1, 1.6, 1.6, 1.6]), { autoPage: false }));
+      }
+      if (!d.vTypes.length && !d.xTypes.length) s.addText('この期間のイベントはありません', { x: 0.5, y: 1.6, w: 12, h: 0.5, fontSize: 14, color: C.muted, fontFace: FONT }); }
+    // 6 イベント一覧
+    { const PER = 15, pages = Math.max(1, Math.ceil(d.evRows.length / PER));
+      for (let pg = 0; pg < pages; pg++) {
+      const s = pres.addSlide({ masterName: 'CONTENT' }); title(s, 'イベント一覧' + (pg ? '(続き)' : ''), `${d.name} / ${d.lab.name} / ${d.evRows.length}件${pages > 1 ? `(${pg + 1}/${pages})` : ''}`);
+      const part = d.evRows.slice(pg * PER, pg * PER + PER);
+      if (part.length) {
+        const rows = part.map(x => { const e = x.e, r = x.r, ov = x.budget > 0 && x.used > x.budget;
+          const res = !x.has ? (x.done ? '未入力' : '開催前') : category(e) === 'visit' ? `来場${num(r.visits)}(新規${num(r.newVisits)})` : `名簿${num(r.leads)}`;
+          return [L(dateRange(e)), L(e.name), L(e.type), L(storeLabel(e)), R(Y(x.budget)), R(Y(x.used), ov ? { color: C.red, bold: true } : {}),
+            L(res, !x.has && x.done ? { color: C.red } : {}), R(x.has ? num(r.appts) : '')]; });
+        s.addTable([[H('日付'), H('イベント'), H('種類'), H('店舗'), H(d.sid === 'all' ? '予算' : '予算(配分)', 1), H('使用金額', 1), H('反響'), H('アポ', 1)], ...rows],
+          Object.assign(tblOpts(0.5, 1.45, 12.3, [1.5, 2.9, 1.5, 1.9, 1.15, 1.15, 1.5, 0.7]), { fontSize: 10 }));
+      } else s.addText('この期間のイベントはありません', { x: 0.5, y: 1.6, w: 12, h: 0.5, fontSize: 14, color: C.muted, fontFace: FONT });
+      } }
+    // 7 項目ごとの使用金額
+    { const s = pres.addSlide({ masterName: 'CONTENT' }); title(s, '項目ごとの使用金額(実績)', `${d.name} / ${d.lab.name}`);
+      if (d.items.length) {
+        const labels = d.items.map(x => x.name).reverse();
+        s.addChart(pres.charts.BAR, [{ name: '使用金額', labels, values: d.items.map(x => Math.round(x.v)).reverse() }],
+          { x: 0.5, y: 1.4, w: 7.2, h: 5.4, barDir: 'bar', chartColors: [C.blue], showLegend: false, showValue: true, dataLabelFormatCode: '#,##0', dataLabelFontSize: 9, dataLabelColor: C.text,
+            catAxisLabelFontFace: FONT, catAxisLabelFontSize: 10, valAxisHidden: true, valGridLine: { style: 'none' }, catGridLine: { style: 'none' }, barGapWidthPct: 50 });
+        const tot = sum(d.items, x => x.v);
+        s.addTable([[H('項目'), H('使用金額', 1), H('割合', 1)], ...d.items.map(x => [L(x.name), R(Y(x.v)), R(P(x.v, tot))]), [L('合計', { bold: true }), R(Y(tot), { bold: true }), R('100%', { bold: true })]],
+          Object.assign(tblOpts(8.0, 1.5, 4.8, [2.3, 1.5, 1.0]), { autoPage: false }));
+      } else s.addText('この期間の費用はまだありません', { x: 0.5, y: 1.6, w: 12, h: 0.5, fontSize: 14, color: C.muted, fontFace: FONT }); }
+    // 8 要確認
+    { const s = pres.addSlide({ masterName: 'CONTENT' }); title(s, '要確認', `${d.name} / ${d.lab.name}`);
+      s.addText(`予算を超えたイベント(${d.overEvents.length}件)`, { x: 0.5, y: 1.4, w: 6, h: 0.4, fontSize: 15, bold: true, color: C.red, fontFace: FONT, margin: 0 });
+      if (d.overEvents.length) s.addTable([[H('イベント'), H('予算', 1), H('使用金額', 1), H('超過', 1)], ...d.overEvents.slice(0, 14).map(x => [L(`${md(x.e.start)} ${x.e.name}`), R(Y(x.budget)), R(Y(x.used)), R(Y(x.used - x.budget), { color: C.red, bold: true })])],
+        Object.assign(tblOpts(0.5, 1.9, 6.0, [2.7, 1.1, 1.1, 1.1]), { autoPage: false, fontSize: 10 }));
+      else s.addText('ありません', { x: 0.5, y: 1.9, w: 6, h: 0.4, fontSize: 12, color: C.muted, fontFace: FONT, margin: 0 });
+      s.addText(`終わったのに反響実績が未入力(${d.missing.length}件)`, { x: 6.8, y: 1.4, w: 6, h: 0.4, fontSize: 15, bold: true, color: 'A8783A', fontFace: FONT, margin: 0 });
+      if (d.missing.length) s.addTable([[H('日付'), H('イベント'), H('店舗')], ...d.missing.slice(0, 14).map(x => [L(dateRange(x.e)), L(x.e.name), L(storeLabel(x.e))])],
+        Object.assign(tblOpts(6.8, 1.9, 6.0, [1.6, 2.6, 1.8]), { autoPage: false, fontSize: 10 }));
+      else s.addText('ありません', { x: 6.8, y: 1.9, w: 6, h: 0.4, fontSize: 12, color: C.muted, fontFace: FONT, margin: 0 });
+      const more = [d.overEvents.length > 14 ? `予算超過はほかに ${d.overEvents.length - 14} 件` : '', d.missing.length > 14 ? `未入力はほかに ${d.missing.length - 14} 件` : ''].filter(Boolean).join(' / ');
+      if (more) s.addText(more + '(イベント一覧のスライドで確認できます)', { x: 0.5, y: 6.6, w: 12.3, h: 0.3, fontSize: 10, color: C.muted, fontFace: FONT, margin: 0 }); }
+
+    const file = `レポート_${d.name}_${d.lab.name.replace(/[\s〜()]/g, '_')}.pptx`.replace(/_+/g, '_');
+    await pres.writeFile({ fileName: file });
+    toast('PowerPointを出力しました');
+  } catch (e) {
+    toast('PowerPointを出力できませんでした:' + e.message, { err: true });
+  } finally {
+    setBusy(-1);
+  }
+}
+
 // ---------------------------------------------------------------- 分析シート
 function viewEffect() {
   const sid = state.eStore;
@@ -2675,6 +2942,19 @@ function linkPeriod(fy, q) {
 }
 function stepQuarter(fy, q, d) { const n = fy * 4 + q - 1 + d; return [Math.floor(n / 4), n % 4 + 1]; }
 CH['b-store'] = el => go(() => { state.bStore = el.value; });
+// レポート
+CH['rep-store'] = el => go(() => { repState().sid = el.value; });
+CH['rep-fy'] = el => go(() => { repState()['fy' + el.dataset.k] = Number(el.value); });
+CH['rep-q'] = el => go(() => { repState()['q' + el.dataset.k] = Number(el.value); });
+C['rep-quick'] = el => go(() => {
+  const r = repState(), fy = fyOf(today()), q = qOf(today());
+  const set = (f1, q1, f2, q2) => Object.assign(r, { fy1: f1, q1, fy2: f2, q2 });
+  if (el.dataset.v === 'q') set(fy, q, fy, q);
+  else if (el.dataset.v === 'fy') set(fy, 1, fy, 4);
+  else if (el.dataset.v === 'ytd') set(fy, 1, fy, q);
+  else { const [pf, pq] = stepQuarter(fy, q, -1); set(pf, pq, pf, pq); }
+});
+C['rep-pptx'] = () => exportReportPptx();
 C['b-view'] = el => go(() => { state.bView = el.dataset.v; });
 C['bc-all'] = () => go(() => { state.bStore = 'all'; });
 C['bc-store'] = el => go(() => { state.bStore = state.bStore === el.dataset.v ? 'all' : el.dataset.v; }); // もう一度押すと全店に戻る
