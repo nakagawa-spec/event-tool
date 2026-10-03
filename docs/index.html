@@ -210,12 +210,26 @@ td input[type=number]{width:110px}
 .exp input,.exp select{width:100%}
 .exp-box{background:#f9fafb;padding:10px 12px}
 
+/* 使用実績入力 */
+.store-pick{display:flex;align-items:center;gap:8px;font-weight:600}
+.store-pick select{font-size:15px;padding:6px 10px;min-width:180px;font-weight:600}
+button.big{font-size:15px;padding:8px 18px;font-weight:600}
+.steps{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;background:var(--accent-weak);color:#24426e;border-radius:8px;padding:8px 12px;margin-bottom:12px}
+.target-seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.target-seg button{text-align:left;padding:10px 12px;border-radius:8px;border:2px solid var(--line);background:#fff}
+.target-seg button b{display:block;font-size:14px}
+.target-seg button small{display:block;font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4}
+.target-seg button.on{border-color:var(--accent);background:var(--accent-weak)}
+.target-seg button.on b{color:var(--accent)}
+.card .small-text{margin-top:2px}
+
 @media (max-width:900px){
   .layout,.layout.todo-closed{grid-template-columns:minmax(0,1fr);padding:12px}
   aside{order:-1}
   .todo{position:static;max-height:260px}
   :root{--namew:96px}
   .grid2{grid-template-columns:1fr}
+  .target-seg{grid-template-columns:1fr}
   .mc-cell{min-height:70px}
 }
 @media print{.top,aside,.banner.demo{display:none}.layout{display:block}}
@@ -238,7 +252,7 @@ const EXHIBIT_TYPES = ['大型出展イベント', '出展イベント'];
 const BIG = '大型出展イベント';
 const ROLE_LABEL = { admin: '管理者', manager: '店長', staff: 'スタッフ' };
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
-const TABS = [['calendar', 'カレンダー'], ['plan', '四半期計画'], ['effect', '効果検証'], ['budget', '予算管理']];
+const TABS = [['calendar', 'カレンダー'], ['actual', '使用実績入力'], ['plan', '四半期計画'], ['effect', '効果検証'], ['budget', '予算管理']];
 
 const DEFAULT_STORES = {
   blocks: [
@@ -531,6 +545,27 @@ function todoDone(e, key) {
 }
 function hasResult(e) { return !!(e.result && e.result.entered); }
 
+// イベントに紐付かない費用(costs/{id})
+function costList() { return Object.keys(docs).filter(k => k.startsWith('costs/') && docs[k]).map(k => docs[k]); }
+function othersIn(range, sid) {
+  return costList().filter(c => c.date && c.date >= range[0] && c.date <= range[1] && (sid === 'all' || c.storeId === sid))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+/** 店舗・期間の費用明細(イベントの費用+イベント以外の費用)。費用の日付で絞り込む。amt は店舗分(按分後) */
+function costRows(range, sid) {
+  const rows = [];
+  evList().forEach(e => {
+    if (sid !== 'all' && !participants(e).includes(sid)) return;
+    const r = ratio(e, sid);
+    (e.expenses || []).forEach(x => {
+      const d = x.date || e.start;
+      if (d && d >= range[0] && d <= range[1]) rows.push({ kind: 'event', e, x, date: d, full: num(x.amount), amt: num(x.amount) * r, by: x.by || '' });
+    });
+  });
+  othersIn(range, sid).forEach(c => rows.push({ kind: 'other', x: c, date: c.date, full: num(c.amount), amt: num(c.amount), by: c.updatedBy || c.createdBy || '' }));
+  return rows.sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // ---------------------------------------------------------------- 読み込み・保存
 async function loadAll() {
   const r = await api('load');
@@ -604,12 +639,13 @@ const state = Object.assign({
   tab: 'calendar', calMode: 'store', ym: now0.slice(0, 7), hidden: [],
   plan: { fy: fyOf(now0), q: qOf(now0), storeId: '' },
   period: { mode: 'quarter', ym: now0.slice(0, 7), fy: fyOf(now0), q: qOf(now0) },
-  bStore: 'all', eStore: 'all', todoClosed: false, showDone: false
+  bStore: 'all', eStore: 'all', todoClosed: false, showDone: false,
+  uStore: '', uYm: now0.slice(0, 7)
 }, lsJSON('evt-ui', {}));
 state.users = null; state.accQ = ''; state.accRole = ''; state.accConfirm = null; state.open = {};
 function saveUi() {
-  const { tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone } = state;
-  lsSet('evt-ui', JSON.stringify({ tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone }));
+  const { tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uYm } = state;
+  lsSet('evt-ui', JSON.stringify({ tab, calMode, ym, hidden, plan, period, bStore, eStore, todoClosed, showDone, uStore, uYm }));
 }
 const isHidden = sid => state.hidden.includes(sid);
 function visibleByFilter(e) { return isAll(e) || (e.stores || []).some(id => !isHidden(id)) || !(e.stores || []).some(storeById); }
@@ -694,6 +730,7 @@ function tabsHtml() {
 function mainHtml() {
   if (state.tab === 'accounts' && session.user.role !== 'admin') state.tab = 'calendar';
   switch (state.tab) {
+    case 'actual': return viewActual();
     case 'plan': return viewPlan();
     case 'effect': return viewEffect();
     case 'budget': return viewBudget();
@@ -885,8 +922,9 @@ function periodRange() {
   if (p.mode === 'quarter') return quarterRange(p.fy, p.q);
   return [`${p.fy}-04-01`, `${p.fy + 1}-03-31`];
 }
-function storeSelect(id, act, sel, withAll) {
+function storeSelect(id, act, sel, withAll, placeholder) {
   return `<select id="${id}" data-act="${act}">${withAll ? `<option value="all" ${sel === 'all' ? 'selected' : ''}>全店舗</option>` : ''}
+    ${placeholder && !sel ? `<option value="" selected>${esc(placeholder)}</option>` : ''}
     ${blocks().map(b => `<optgroup label="${esc(b.name)}">${stores().filter(s => s.blockId === b.id).map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</optgroup>`).join('')}
     ${stores().filter(s => !blocks().some(b => b.id === s.blockId)).map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
   </select>`;
@@ -907,7 +945,9 @@ function viewPlan() {
   const evs = eventsIn(range, sid);
   const budget = num(plan.budget);
   const allocated = sum(evs, e => shareOf(e, sid));
-  const used = sum(evs, e => usedShare(e, sid));
+  const other = sum(othersIn(range, sid), c => num(c.amount));
+  const used = sum(evs, e => usedShare(e, sid)) + other;
+  const rest = budget - allocated - other;
   const memos = (plan.memos || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   return `
   <div class="view-head">
@@ -919,8 +959,9 @@ function viewPlan() {
   <div class="cards">
     <div class="card"><div class="lbl">四半期予算</div><input type="number" min="0" step="10000" id="plan-budget" data-act="plan-budget" value="${budget || ''}" placeholder="0"></div>
     <div class="card"><div class="lbl">イベントに配分した予算</div><div class="val">${yen(allocated)}</div></div>
-    <div class="card"><div class="lbl">まだ配分していない予算</div><div class="val ${budget - allocated < 0 ? 'neg' : ''}">${yen(budget - allocated)}</div></div>
-    <div class="card"><div class="lbl">使用金額</div><div class="val ${used > budget && budget > 0 ? 'neg' : ''}">${yen(used)}</div></div>
+    <div class="card"><div class="lbl">イベント以外の費用</div><div class="val">${yen(other)}</div></div>
+    <div class="card"><div class="lbl">まだ配分していない予算</div><div class="val ${rest < 0 ? 'neg' : ''}">${yen(rest)}</div></div>
+    <div class="card"><div class="lbl">使用金額(イベント以外も含む)</div><div class="val ${used > budget && budget > 0 ? 'neg' : ''}">${yen(used)}</div></div>
   </div>
   <div class="panel">
     <div class="view-head" style="margin-bottom:8px"><h3 style="margin:0">イベント計画</h3><div class="grow"></div>
@@ -951,6 +992,82 @@ function viewPlan() {
   </div>`;
 }
 
+// ---------------------------------------------------------------- 使用実績入力(各店の事務向け)
+function viewActual() {
+  if (state.uStore && !storeById(state.uStore)) state.uStore = '';
+  const sid = state.uStore;
+  const [y, m] = state.uYm.split('-').map(Number);
+  const head = `
+  <div class="view-head">
+    <label class="store-pick"><span>店舗</span>${storeSelect('u-store', 'u-store', sid, false, '店舗を選んでください')}</label>
+    <div class="month-nav">
+      <button data-act="u-month-step" data-v="-1" aria-label="前の月">‹</button>
+      <strong>${y}年${m}月</strong>
+      <button data-act="u-month-step" data-v="1" aria-label="次の月">›</button>
+      <button class="small" data-act="u-month-today">今月</button>
+    </div>
+    <div class="grow"></div>
+    ${sid ? '<button class="primary big" data-act="cost-new">＋ 費用を入力</button>' : ''}
+  </div>`;
+  if (!sid) return head + `<div class="panel empty">はじめに、上の「店舗」であなたの店舗を選んでください。<br><span class="small-text">選んだ店舗はこのパソコン(ブラウザ)に記憶され、次回からは自動で表示されます。</span></div>`;
+
+  const range = monthBounds(y, m);
+  const rows = costRows(range, sid);
+  const evAmt = sum(rows.filter(r => r.kind === 'event'), r => r.amt);
+  const otAmt = sum(rows.filter(r => r.kind === 'other'), r => r.amt);
+  // この月が入っている四半期の予算の残り(四半期計画と同じ計算)
+  const fy = fyOf(range[0]), q = qOf(range[0]), qr = quarterRange(fy, q);
+  const qBudget = num((getDoc(`plans/${fy}-q${q}-${sid}`) || {}).budget);
+  const qUsed = sum(eventsIn(qr, sid), e => usedShare(e, sid)) + sum(othersIn(qr, sid), c => num(c.amount));
+  const evs = evList().filter(e => e.start && e.start <= range[1] && evEnd(e) >= range[0] && participants(e).includes(sid));
+
+  const list = rows.length ? `<div class="table-wrap"><table>
+      <tr><th>日付</th><th>何の費用</th><th>項目</th><th>内容</th><th class="num">金額</th><th>入力者</th><th></th></tr>
+      ${rows.map(r => `<tr class="clickable" data-act="cost-edit" data-kind="${r.kind}" data-id="${r.e ? r.e.id : ''}" data-x="${r.x.id}">
+        <td class="nowrap">${md(r.date)}</td>
+        <td>${r.e ? `<span class="typetag ${typeClass(r.e)}"></span>${esc(r.e.name)}${isSingle(r.e) ? '' : `<br><span class="muted small-text">${esc(storeLabel(r.e))}</span>`}` : '<span class="badge gray">イベント以外</span>'}</td>
+        <td class="nowrap">${esc(costName(r.x.costItemId))}</td><td>${esc(r.x.desc || '')}</td>
+        <td class="num">${yen(r.full)}${Math.round(r.amt) !== Math.round(r.full) ? `<br><span class="muted small-text">この店舗分 ${yen(r.amt)}</span>` : ''}</td>
+        <td class="small-text muted nowrap">${esc(r.by)}</td>
+        <td class="nowrap"><button class="link small">編集</button></td></tr>`).join('')}
+      <tr class="total"><td colspan="4">この店舗の合計</td><td class="num">${yen(evAmt + otAmt)}</td><td colspan="2"></td></tr>
+    </table></div>
+    <p class="muted small-text">行をクリックすると、直したり削除したりできます。合同・全店共通イベントの費用は、各店舗に割り振った予算の比率で按分した「この店舗分」を合計しています。</p>`
+    : `<div class="empty">${y}年${m}月の費用はまだ入力されていません。<br><button class="primary" style="margin-top:10px" data-act="cost-new">＋ 費用を入力</button></div>`;
+
+  const evTable = evs.length ? `<div class="table-wrap"><table>
+      <tr><th>日付</th><th>イベント</th><th>区分</th><th class="num">予算(この店舗分)</th><th class="num">使用金額(この店舗分)</th><th class="num">残り</th><th></th></tr>
+      ${evs.map(e => {
+        const b = shareOf(e, sid), u = usedShare(e, sid);
+        return `<tr class="${u > b ? 'over' : ''}">
+          <td class="nowrap">${dateRange(e)}</td><td><span class="typetag ${typeClass(e)}"></span>${esc(e.name)}<br><span class="muted small-text">${esc(e.type)}</span></td>
+          <td class="nowrap">${isSingle(e) ? '単独' : isAll(e) ? '全店共通' : '合同'}</td>
+          <td class="num">${yen(b)}</td><td class="num">${yen(u)}</td><td class="num ${b - u < 0 ? 'red' : ''}">${yen(b - u)}</td>
+          <td class="nowrap"><button class="small" data-act="cost-new" data-ev="${e.id}">＋ 費用</button></td></tr>`;
+      }).join('')}
+    </table></div><p class="muted small-text">使用金額は、そのイベントに入力された費用の累計です(費用の日付が別の月でも含みます)。</p>`
+    : '<div class="muted small-text">この月にこの店舗のイベントはありません</div>';
+
+  return head + `
+  <div class="steps small-text"><b>入力のしかた</b>
+    <span>① 店舗と月を確認</span><span>② 「＋ 費用を入力」</span><span>③ 「イベントの費用」か「イベント以外の費用」を選ぶ</span><span>④ 日付・項目・金額を入れて保存</span></div>
+  <div class="cards">
+    <div class="card"><div class="lbl">${m}月の費用合計</div><div class="val">${yen(evAmt + otAmt)}</div></div>
+    <div class="card"><div class="lbl">うち イベントの費用</div><div class="val">${yen(evAmt)}</div></div>
+    <div class="card"><div class="lbl">うち イベント以外の費用</div><div class="val">${yen(otAmt)}</div></div>
+    <div class="card"><div class="lbl">${Q_LABEL[q]}の予算の残り</div><div class="val ${qBudget && qBudget - qUsed < 0 ? 'neg' : ''}">${qBudget ? yen(qBudget - qUsed) : '<span class="muted" style="font-size:14px;font-weight:400">予算未設定</span>'}</div>
+      ${qBudget ? `<div class="muted small-text">予算 ${yen(qBudget)} / 使用 ${yen(qUsed)}</div>` : ''}</div>
+  </div>
+  <div class="panel">
+    <h3>${esc(storeName(sid))} の費用一覧(${y}年${m}月)</h3>
+    ${list}
+  </div>
+  <div class="panel">
+    <h3>この月のイベントと予算</h3>
+    ${evTable}
+  </div>`;
+}
+
 // ---------------------------------------------------------------- 予算管理
 function viewBudget() {
   const sid = state.bStore;
@@ -970,6 +1087,13 @@ function viewBudget() {
       byItem[k].total += num(x.amount) * r; byItem[k].count++;
     });
   });
+  const others = othersIn(range, sid);
+  const to = sum(others, c => num(c.amount));
+  others.forEach(c => {
+    const k = c.costItemId || '';
+    byItem[k] = byItem[k] || { total: 0, count: 0 };
+    byItem[k].total += num(c.amount); byItem[k].count++;
+  });
   const itemRows = Object.keys(byItem).sort((a, b) => byItem[b].total - byItem[a].total);
   return `
   <div class="view-head">
@@ -980,10 +1104,12 @@ function viewBudget() {
   </div>
   ${over.length ? `<div class="banner warn">予算を超えているイベントが ${over.length} 件あります:${over.map(e => esc(e.name)).join('、')}</div>` : ''}
   <div class="cards">
-    <div class="card"><div class="lbl">予算合計</div><div class="val">${yen(tb)}</div></div>
-    <div class="card"><div class="lbl">使用金額</div><div class="val ${tu > tb ? 'neg' : ''}">${yen(tu)}</div></div>
-    <div class="card"><div class="lbl">残り</div><div class="val ${tb - tu < 0 ? 'neg' : ''}">${yen(tb - tu)}</div></div>
+    <div class="card"><div class="lbl">イベント予算の合計</div><div class="val">${yen(tb)}</div></div>
+    <div class="card"><div class="lbl">イベントの使用金額</div><div class="val ${tu > tb ? 'neg' : ''}">${yen(tu)}</div></div>
+    <div class="card"><div class="lbl">イベント予算の残り</div><div class="val ${tb - tu < 0 ? 'neg' : ''}">${yen(tb - tu)}</div></div>
     <div class="card"><div class="lbl">消化率</div><div class="val">${pct(tu, tb)}</div></div>
+    <div class="card"><div class="lbl">イベント以外の費用</div><div class="val">${yen(to)}</div></div>
+    <div class="card"><div class="lbl">費用の合計</div><div class="val">${yen(tu + to)}</div></div>
   </div>
   <div class="panel">
     <h3>イベントごとの予算と使用金額</h3>
@@ -1001,13 +1127,24 @@ function viewBudget() {
     </table></div>` : '<div class="empty">この期間のイベントはありません</div>'}
   </div>
   <div class="panel">
+    <div class="view-head" style="margin-bottom:8px"><h3 style="margin:0">イベント以外の費用</h3><div class="grow"></div>
+      <button class="small" data-act="cost-new" data-target="other" data-store="${sid === 'all' ? '' : sid}">＋ 追加</button></div>
+    ${others.length ? `<div class="table-wrap"><table>
+      <tr><th>日付</th><th>店舗</th><th>項目</th><th>内容</th><th class="num">金額</th><th>入力者</th></tr>
+      ${others.map(c => `<tr class="clickable" data-act="cost-edit" data-kind="other" data-x="${c.id}">
+        <td class="nowrap">${ymd(c.date)}</td><td>${esc(storeName(c.storeId))}</td><td>${esc(costName(c.costItemId))}</td>
+        <td>${esc(c.desc || '')}</td><td class="num">${yen(num(c.amount))}</td><td class="small-text muted">${esc(c.updatedBy || c.createdBy || '')}</td></tr>`).join('')}
+      <tr class="total"><td colspan="4">合計</td><td class="num">${yen(to)}</td><td></td></tr>
+    </table></div>` : '<div class="muted small-text">この期間のイベント以外の費用はありません</div>'}
+  </div>
+  <div class="panel">
     <h3>項目ごとの使用金額</h3>
     ${itemRows.length ? `<table>
       <tr><th>項目</th><th class="num">件数</th><th class="num">使用金額</th></tr>
       ${itemRows.map(k => `<tr class="clickable" data-act="item-detail" data-v="${esc(k)}"><td>${esc(k ? costName(k) : '(項目なし)')}</td>
         <td class="num">${byItem[k].count}</td><td class="num">${yen(byItem[k].total)}</td></tr>`).join('')}
-      <tr class="total"><td>合計</td><td></td><td class="num">${yen(tu)}</td></tr>
-    </table><p class="muted small-text">項目をクリックすると「いつ・どのイベントで・何に・いくら」の明細が開きます。</p>` : '<div class="muted small-text">使用金額の明細はまだありません</div>'}
+      <tr class="total"><td>合計</td><td></td><td class="num">${yen(tu + to)}</td></tr>
+    </table><p class="muted small-text">イベント以外の費用も含みます。項目をクリックすると「いつ・どのイベントで・何に・いくら」の明細が開きます。</p>` : '<div class="muted small-text">使用金額の明細はまだありません</div>'}
   </div>`;
 }
 function expenseEditor(e) {
@@ -1308,7 +1445,8 @@ MODALS.stores = m => {
 
 // ---------------------------------------------------------------- 費用項目マスター
 MODALS.cost = m => {
-  const used = id => sum(evList(), e => (e.expenses || []).filter(x => x.costItemId === id).length + (e.allocations || []).filter(a => a.costItemId === id).length);
+  const used = id => sum(evList(), e => (e.expenses || []).filter(x => x.costItemId === id).length + (e.allocations || []).filter(a => a.costItemId === id).length)
+    + costList().filter(c => c.costItemId === id).length;
   return `<h2>費用項目マスター</h2>
     <p class="muted small-text" style="margin-top:-6px">使用金額の明細と、予算の割り振りで使う項目(媒体項目)です。</p>
     <table>${m.draft.map((c, i) => `<tr><td><input data-act="ci-name" data-i="${i}" value="${esc(c.name)}" style="width:100%"></td>
@@ -1326,18 +1464,100 @@ MODALS.itemDetail = m => {
   const rows = [];
   eventsIn(periodRange(), sid).forEach(e => {
     const r = ratio(e, sid);
-    (e.expenses || []).filter(x => (x.costItemId || '') === m.item).forEach(x => rows.push({ e, x, amt: num(x.amount) * r }));
+    (e.expenses || []).filter(x => (x.costItemId || '') === m.item).forEach(x => rows.push({ e, x, d: x.date || e.start, amt: num(x.amount) * r }));
   });
-  rows.sort((a, b) => (a.x.date || a.e.start).localeCompare(b.x.date || b.e.start));
+  othersIn(periodRange(), sid).filter(c => (c.costItemId || '') === m.item).forEach(c => rows.push({ e: null, x: c, d: c.date, amt: num(c.amount) }));
+  rows.sort((a, b) => a.d.localeCompare(b.d));
   return `<h2>${esc(m.item ? costName(m.item) : '(項目なし)')} の明細</h2>
     <div class="table-wrap"><table>
       <tr><th>いつ</th><th>どのイベントで</th><th>何に</th><th class="num">いくら</th></tr>
-      ${rows.map(r => `<tr><td class="nowrap">${r.x.date ? ymd(r.x.date) : dateRange(r.e)}</td><td>${esc(r.e.name)}<br><span class="muted small-text">${esc(storeLabel(r.e))}</span></td>
-        <td>${esc(r.x.desc || '')}</td><td class="num">${yen(r.amt)}${sid !== 'all' && !isSingle(r.e) ? `<br><span class="muted small-text">全体 ${yen(num(r.x.amount))}</span>` : ''}</td></tr>`).join('')}
+      ${rows.map(r => `<tr><td class="nowrap">${r.x.date ? ymd(r.x.date) : dateRange(r.e)}</td>
+        <td>${r.e ? `${esc(r.e.name)}<br><span class="muted small-text">${esc(storeLabel(r.e))}</span>` : `<span class="badge gray">イベント以外</span><br><span class="muted small-text">${esc(storeName(r.x.storeId))}</span>`}</td>
+        <td>${esc(r.x.desc || '')}</td><td class="num">${yen(r.amt)}${r.e && sid !== 'all' && !isSingle(r.e) ? `<br><span class="muted small-text">全体 ${yen(num(r.x.amount))}</span>` : ''}</td></tr>`).join('')}
       <tr class="total"><td colspan="3">合計</td><td class="num">${yen(sum(rows, r => r.amt))}</td></tr>
     </table></div>
     <div class="foot"><div class="grow"></div><button data-act="modal-close">閉じる</button></div>`;
 };
+
+// ---------------------------------------------------------------- 費用の入力(イベントの費用/イベント以外の費用)
+/** opt: { target:'event'|'other'|'', eventId, storeId, x(編集する明細) } */
+function openCostModal(opt) {
+  const x = opt.x || null;
+  let date = x ? x.date : '';
+  if (!date) {
+    const ev = opt.eventId && getEvent(opt.eventId);
+    const ym = state.tab === 'actual' ? state.uYm : today().slice(0, 7);
+    date = today().startsWith(ym) ? today() : ev && ev.start.startsWith(ym) ? ev.start : ym + '-01';
+  }
+  const draft = {
+    target: opt.target || '', eventId: opt.eventId || '', storeId: opt.storeId || '', date,
+    costItemId: x ? x.costItemId : '', desc: x ? x.desc || '' : '', amount: x ? num(x.amount) : ''
+  };
+  const orig = x ? { target: opt.target, eventId: opt.eventId || '', id: x.id } : null;
+  openModal({ kind: 'expense', draft, orig, x, confirmDel: false });
+}
+function costEventOptions(sid, cur) {
+  const from = addDays(today(), -400);
+  const evs = evList().filter(e => e.start && (e.id === cur || (e.start >= from && (!sid || participants(e).includes(sid)))))
+    .sort((a, b) => b.start.localeCompare(a.start));
+  if (!evs.length) return '<option value="">(この店舗のイベントがありません)</option>';
+  return `<option value="" ${cur ? '' : 'selected'}>選んでください</option>` + evs.map(e =>
+    `<option value="${e.id}" ${e.id === cur ? 'selected' : ''}>${esc(ymd(e.start))} ${esc(e.name)}${isSingle(e) ? '' : `(${esc(storeLabel(e))})`}</option>`).join('');
+}
+MODALS.expense = m => {
+  const d = m.draft;
+  const ev = d.eventId && getEvent(d.eventId);
+  const tgt = (v, label, sub) => `<button type="button" class="${d.target === v ? 'on' : ''}" data-act="cx-target" data-v="${v}"><b>${label}</b><small>${sub}</small></button>`;
+  const fields = !d.target ? '<p class="muted small-text">上のどちらかを選ぶと、入力欄が出てきます。</p>' : `
+    ${d.target === 'event' ? `<label><span>どのイベントの費用ですか? *</span><select id="cx-event" data-act="cx-event">${costEventOptions(d.storeId, d.eventId)}</select></label>
+      ${ev && !isSingle(ev) ? '<div class="note">合同・全店共通のイベントです。<b>イベント全体でかかった金額</b>を入れてください。各店舗に割り振った予算の比率で自動的に按分されます(同じ費用を店舗ごとに重ねて入れないでください)。</div>' : ''}` : ''}
+    <div class="grid2">
+      <label><span>日付 *(支払日・請求日など)</span><input type="date" id="cx-date" value="${esc(d.date)}"></label>
+      <label><span>金額(円) *</span><input type="number" id="cx-amount" min="0" step="1" inputmode="numeric" value="${d.amount === '' ? '' : num(d.amount)}" placeholder="例:55000"></label>
+    </div>
+    <label><span>項目 *</span><select id="cx-item"><option value="" ${d.costItemId ? '' : 'selected'}>選んでください</option>
+      ${costItems().map(c => `<option value="${c.id}" ${c.id === d.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+      ${d.costItemId && !costItems().some(c => c.id === d.costItemId) ? `<option value="${esc(d.costItemId)}" selected>(削除された項目)</option>` : ''}</select></label>
+    <label><span>内容(何に使ったか)</span><input id="cx-desc" value="${esc(d.desc)}" placeholder="例:A4チラシ 5,000部 印刷代"></label>`;
+  const last = m.x && (m.x.by || m.x.updatedBy || m.x.createdBy);
+  return `<h2>${m.orig ? '費用を直す' : '費用を入力'}</h2>
+    <label><span>店舗 *</span>${storeSelect('cx-store', 'cx-store', d.storeId, false, '店舗を選んでください')}</label>
+    <div class="field"><div class="lbl">何の費用ですか? *</div>
+      <div class="target-seg">
+        ${tgt('event', 'イベントの費用', '見学会・相談会・出展など、カレンダーに登録したイベントにかかった費用')}
+        ${tgt('other', 'イベント以外の費用', '毎月のWeb広告、看板、店舗のノベルティなど、イベントに関係ない費用')}
+      </div>
+    </div>
+    ${fields}
+    ${last ? `<p class="muted small-text">最後に入力した人:${esc(last)}</p>` : ''}
+    <div class="err"></div>
+    <div class="foot">
+      ${!m.orig ? '' : m.confirmDel
+        ? '<button class="danger" data-act="cx-delete">削除する</button><button class="link" data-act="cx-delete-cancel">やめる</button>'
+        : '<button class="link danger-text" data-act="cx-delete-ask">削除</button>'}
+      <div class="grow"></div>
+      <button data-act="modal-close">キャンセル</button>
+      ${d.target ? '<button class="primary" data-act="cx-save">保存</button>' : ''}
+    </div>`;
+};
+function readCostForm(m) {
+  const d = m.draft;
+  if ($('cx-store')) d.storeId = $('cx-store').value;
+  if ($('cx-event')) d.eventId = $('cx-event').value;
+  if ($('cx-date')) d.date = $('cx-date').value;
+  if ($('cx-amount')) d.amount = $('cx-amount').value;
+  if ($('cx-item')) d.costItemId = $('cx-item').value;
+  if ($('cx-desc')) d.desc = $('cx-desc').value;
+}
+/** 編集前の場所(イベントの明細 / costs)から取り除く */
+function removeCostAt(o) {
+  if (o.target === 'event') {
+    const e = clone(getEvent(o.eventId)); if (!e) return;
+    e.expenses = (e.expenses || []).filter(r => r.id !== o.id);
+    return saveDoc('events/' + e.id, e);
+  }
+  return removeDoc('costs/' + o.id);
+}
 
 // ---------------------------------------------------------------- パスワード・仮パスワード
 MODALS.password = () => `<h2>パスワード変更</h2>
@@ -1513,6 +1733,77 @@ C['exp-del'] = el => {
 };
 C['cost-master'] = () => openModal({ kind: 'cost', draft: clone(costItems()), confirm: null });
 C['item-detail'] = el => openModal({ kind: 'itemDetail', wide: true, item: el.dataset.v });
+
+// 使用実績入力
+CH['u-store'] = el => go(() => { state.uStore = el.value; });
+C['u-month-step'] = el => go(() => {
+  const [y, m] = state.uYm.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + Number(el.dataset.v), 1));
+  state.uYm = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
+});
+C['u-month-today'] = () => go(() => { state.uYm = today().slice(0, 7); });
+C['cost-new'] = el => {
+  const sid = el.dataset.store != null ? el.dataset.store : (state.tab === 'actual' ? state.uStore : '');
+  openCostModal({ target: el.dataset.ev ? 'event' : el.dataset.target || '', eventId: el.dataset.ev || '', storeId: sid });
+};
+C['cost-edit'] = el => {
+  if (el.dataset.kind === 'other') {
+    const c = getDoc('costs/' + el.dataset.x); if (!c) return;
+    return openCostModal({ target: 'other', storeId: c.storeId, x: c });
+  }
+  const e = getEvent(el.dataset.id); if (!e) return;
+  const x = (e.expenses || []).find(r => r.id === el.dataset.x); if (!x) return;
+  const sid = (state.tab === 'actual' && state.uStore) || x.storeId || (isSingle(e) ? e.stores[0] : '');
+  openCostModal({ target: 'event', eventId: e.id, storeId: sid, x });
+};
+
+// 費用入力モーダル
+C['cx-target'] = el => { const m = topModal(); readCostForm(m); m.draft.target = el.dataset.v; renderModal(); };
+CH['cx-store'] = () => {
+  const m = topModal(); readCostForm(m);
+  const e = m.draft.eventId && getEvent(m.draft.eventId);
+  if (e && m.draft.storeId && !participants(e).includes(m.draft.storeId)) m.draft.eventId = '';
+  renderModal();
+};
+CH['cx-event'] = () => { const m = topModal(); readCostForm(m); renderModal(); };
+C['cx-delete-ask'] = () => { const m = topModal(); readCostForm(m); m.confirmDel = true; renderModal(); };
+C['cx-delete-cancel'] = () => { const m = topModal(); readCostForm(m); m.confirmDel = false; renderModal(); };
+C['cx-delete'] = () => {
+  const m = topModal(); closeModal();
+  removeCostAt(m.orig);
+  toast('費用を削除しました');
+};
+C['cx-save'] = () => {
+  const m = topModal(); readCostForm(m);
+  const d = m.draft;
+  if (!d.storeId && d.target === 'other') return modalErr('店舗を選んでください');
+  if (d.target === 'event' && !getEvent(d.eventId)) return modalErr('どのイベントの費用かを選んでください');
+  if (!d.date) return modalErr('日付を入れてください');
+  if (!(num(d.amount) > 0)) return modalErr('金額を入れてください');
+  if (!d.costItemId) return modalErr('項目を選んでください');
+  const by = session.user.name, at = new Date().toISOString();
+  const o = m.orig;
+  const id = o ? o.id : uid();
+  const rec = { id, date: d.date, costItemId: d.costItemId, desc: d.desc.trim(), amount: num(d.amount) };
+  closeModal();
+  // 「何の費用か」を変えたときは、元の場所から移す
+  if (o && !(o.target === d.target && (d.target === 'other' || o.eventId === d.eventId))) removeCostAt(o);
+  const msg = o ? '費用を保存しました' : '費用を入力しました';
+  if (d.target === 'event') {
+    const e = clone(getEvent(d.eventId));
+    const list = e.expenses || [];
+    const i = list.findIndex(r => r.id === id);
+    const row = Object.assign({}, i >= 0 ? list[i] : {}, rec, { storeId: d.storeId, by, at });
+    if (i >= 0) list[i] = row; else list.push(row);
+    e.expenses = list;
+    saveDoc('events/' + e.id, e, msg);
+  } else {
+    const prev = getDoc('costs/' + id) || {};
+    saveDoc('costs/' + id, Object.assign({}, prev, rec, {
+      storeId: d.storeId, createdBy: prev.createdBy || by, createdAt: prev.createdAt || at, updatedBy: by, updatedAt: at
+    }), msg);
+  }
+};
 
 // アカウント管理
 IN['acc-q'] = el => { state.accQ = el.value; render(); };
