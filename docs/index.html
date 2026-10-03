@@ -2452,10 +2452,18 @@ CH['period-ym'] = el => go(() => { if (el.value) state.period.ym = el.value; });
 CH['period-fy'] = el => go(() => { state.period.fy = Number(el.value); });
 CH['period-q'] = el => go(() => { state.period.q = Number(el.value); });
 CH['b-store'] = el => go(() => { state.bStore = el.value; });
-CH['e-store'] = el => go(() => { state.eStore = el.value; });
+/**
+ * 店舗の選択を連動させる:費用実績・反響実績・四半期計画・分析シート(カレンダーと予算管理は連動しない)。
+ * 「全店舗」(分析シート)や「合算」(四半期計画)は、それを選べるタブだけに効く。
+ */
+function linkStore(v) {
+  if (!storeById(v)) return;
+  state.uStore = v; state.plan.storeId = v; state.eStore = v;
+}
+CH['e-store'] = el => go(() => { linkStore(el.value); state.eStore = el.value; });
 
 // 四半期計画
-CH['plan-store'] = el => go(() => { state.plan.storeId = el.value; });
+CH['plan-store'] = el => go(() => { linkStore(el.value); state.plan.storeId = el.value; });
 CH['plan-fy'] = el => go(() => { state.plan.fy = Number(el.value); });
 CH['plan-q'] = el => go(() => { state.plan.q = Number(el.value); });
 C['plan-q-step'] = el => go(() => { // Q4 の次は翌年度の Q1
@@ -2549,7 +2557,7 @@ C['cost-master'] = () => openModal({ kind: 'cost', draft: clone(costItems()), co
 C['item-detail'] = el => openModal({ kind: 'itemDetail', wide: true, item: el.dataset.v });
 
 // 実績入力
-CH['u-store'] = el => go(() => { state.uStore = el.value; });
+CH['u-store'] = el => go(() => { linkStore(el.value); state.uStore = el.value; });
 C['u-q-step'] = el => go(() => {
   const n = state.uFy * 4 + state.uQ - 1 + Number(el.dataset.v);
   state.uFy = Math.floor(n / 4); state.uQ = n % 4 + 1;
