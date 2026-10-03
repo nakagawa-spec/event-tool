@@ -231,6 +231,15 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .rs-in{display:flex;align-items:center;gap:6px}
 .modal .rs-in input{font-size:20px;font-weight:700;padding:6px 10px}
 .rs-in em{font-style:normal;color:var(--muted)}
+input.money{text-align:right}
+td input.money{width:130px}
+.cum-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.cum-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.cum-nums .lbl{display:block;font-size:12px;color:var(--muted)}
+.cum-nums b{font-size:18px}
+.cum-bar{height:8px;background:var(--line2);border-radius:4px;margin-top:10px;overflow:hidden}
+.cum-bar div{height:100%;background:var(--accent);border-radius:4px}
+.cum-bar div.over{background:var(--danger)}
 tr.month-row td{background:#eef3fb;font-weight:700;font-size:13px;padding:5px 9px}
 .note-cell{max-width:260px;white-space:pre-wrap}
 .q-label{min-width:170px}
@@ -312,6 +321,27 @@ const per = (a, b) => b > 0 ? yen(a / b) : '—';
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+/** 金額の入力欄。打つと自動で「¥」と「,」が入る(上下ボタンなし) */
+function moneyInput(attrs, v, ph) {
+  const n = num(v);
+  let cls = 'money';
+  attrs = attrs.replace(/class="([^"]*)"/, (_, c) => { cls += ' ' + c; return ''; });
+  return `<input type="text" inputmode="numeric" class="${cls}" autocomplete="off" ${attrs} value="${n ? yen(n) : ''}" placeholder="${esc(ph || '¥0')}">`;
+}
+function formatMoney(el) {
+  const raw = el.value.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  const pos = el.selectionStart == null ? raw.length : el.selectionStart;
+  const before = raw.slice(0, pos).replace(/\D/g, '').replace(/^0+/, '').length;
+  const d = raw.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  el.value = d ? '¥' + Number(d).toLocaleString('ja-JP') : '';
+  let i = 1, c = 0; // カーソルを同じ数字の後ろに戻す
+  while (i < el.value.length && c < before) { if (/\d/.test(el.value[i])) c++; i++; }
+  if (!el.value) return;
+  try { if (document.activeElement === el) el.setSelectionRange(i, i); } catch (e) { }
+}
+document.addEventListener('input', ev => { if (ev.target.classList && ev.target.classList.contains('money') && !ev.isComposing) formatMoney(ev.target); }, true);
+document.addEventListener('compositionend', ev => { if (ev.target.classList && ev.target.classList.contains('money')) formatMoney(ev.target); }, true);
+
 function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { } }
 function lsJSON(k, def) { try { const v = JSON.parse(lsGet(k)); return v == null ? def : v; } catch (e) { return def; } }
@@ -558,6 +588,31 @@ function todoDone(e, key) {
   return !!(e.todos && e.todos[key]);
 }
 function hasResult(e) { return !!(e.result && e.result.entered); }
+
+/** 年度の初め(Q1)から q 四半期目までの累計。予算は四半期計画の予算の合計、消化は費用(イベント+イベント以外)の合計 */
+function cumulative(fy, q, sid) {
+  const ids = sid === 'all' ? stores().map(s => s.id) : [sid];
+  let budget = 0;
+  for (let i = 1; i <= q; i++) ids.forEach(id => { budget += num((getDoc(`plans/${fy}-q${i}-${id}`) || {}).budget); });
+  const range = [quarterRange(fy, 1)[0], quarterRange(fy, q)[1]];
+  const used = sum(eventsIn(range, sid), e => sid === 'all' ? usedOf(e) : usedShare(e, sid)) + sum(othersIn(range, sid), c => num(c.amount));
+  return { fy, q, budget, used, range };
+}
+function cumulativeHtml(c) {
+  const rate = c.budget > 0 ? Math.min(100, c.used / c.budget * 100) : 0;
+  const over = c.budget > 0 && c.used > c.budget;
+  const [, m1] = c.range[0].split('-').map(Number), [, m2] = c.range[1].split('-').map(Number);
+  return `<div class="panel cum">
+    <div class="cum-head"><h3 style="margin:0">年度の累計</h3><span class="muted small-text">${kiLabel(c.fy)} ${m1}月〜${m2}月(Q1〜Q${c.q})</span></div>
+    <div class="cum-nums">
+      <div><span class="lbl">予算の累計</span><b>${c.budget ? yen(c.budget) : '未設定'}</b></div>
+      <div><span class="lbl">消化金額の累計</span><b class="${over ? 'red' : ''}">${yen(c.used)}</b></div>
+      <div><span class="lbl">残り</span><b class="${over ? 'red' : ''}">${c.budget ? yen(c.budget - c.used) : '—'}</b></div>
+      <div><span class="lbl">消化率</span><b class="${over ? 'red' : ''}">${pct(c.used, c.budget)}</b></div>
+    </div>
+    ${c.budget ? `<div class="cum-bar"><div class="${over ? 'over' : ''}" style="width:${rate}%"></div></div>` : '<p class="muted small-text" style="margin:6px 0 0">四半期計画で各四半期の予算を入れると、累計の予算と消化率が出ます。</p>'}
+  </div>`;
+}
 
 // イベントに紐付かない費用(costs/{id})
 function costList() { return Object.keys(docs).filter(k => k.startsWith('costs/') && docs[k]).map(k => docs[k]); }
@@ -1012,12 +1067,13 @@ function viewPlan() {
     <span class="muted small-text">${ymd(range[0])}〜${ymd(range[1])}</span>
   </div>
   <div class="cards">
-    <div class="card"><div class="lbl">四半期予算</div><input type="number" min="0" step="10000" id="plan-budget" data-act="plan-budget" value="${budget || ''}" placeholder="0"></div>
+    <div class="card"><div class="lbl">四半期予算</div>${moneyInput('id="plan-budget" data-act="plan-budget"', budget)}</div>
     <div class="card"><div class="lbl">イベントに配分した予算</div><div class="val">${yen(allocated)}</div></div>
     <div class="card"><div class="lbl">イベント以外の費用</div><div class="val">${yen(other)}</div></div>
     <div class="card"><div class="lbl">まだ配分していない予算</div><div class="val ${rest < 0 ? 'neg' : ''}">${yen(rest)}</div></div>
     <div class="card"><div class="lbl">使用金額(イベント以外も含む)</div><div class="val ${used > budget && budget > 0 ? 'neg' : ''}">${yen(used)}</div></div>
   </div>
+  ${cumulativeHtml(cumulative(p.fy, p.q, sid))}
   <div class="panel">
     <div class="view-head" style="margin-bottom:8px"><h3 style="margin:0">イベント計画</h3><div class="grow"></div>
       <button class="small" data-act="new-event" data-store="${sid}" data-start="${range[0] > today() ? range[0] : (today() <= range[1] ? today() : range[0])}">＋ この店舗のイベントを登録</button></div>
@@ -1029,7 +1085,7 @@ function viewPlan() {
         <td class="nowrap">${esc(e.type)}</td>
         <td class="nowrap">${isSingle(e) ? '単独' : isAll(e) ? '全店共通' : '合同'}</td>
         <td class="num">${isSingle(e)
-          ? `<input type="number" min="0" step="1000" id="pe-budget-${e.id}" data-act="event-budget" data-id="${e.id}" value="${num(e.budget) || ''}" placeholder="0">`
+          ? `${yen(num(e.budget))} <button class="link small" data-act="budget-event" data-id="${e.id}">変更</button>`
           : `${yen(shareOf(e, sid))} <button class="link small" data-act="alloc-event" data-id="${e.id}">割り振る</button>`}</td>
         <td class="num">${yen(usedShare(e, sid))}${isSingle(e) ? '' : '<br><span class="muted small-text">按分</span>'}</td>
       </tr>`).join('')}
@@ -1132,6 +1188,7 @@ function viewActual() {
     <div class="card"><div class="lbl">予算の残り</div><div class="val ${budget && budget - used < 0 ? 'neg' : ''}">${budget ? yen(budget - used) : '—'}</div></div>
     <div class="card"><div class="lbl">消化率</div><div class="val">${pct(used, budget)}</div></div>
   </div>
+  ${cumulativeHtml(cumulative(state.uFy, state.uQ, sid))}
   <div class="panel">
     <h3>${esc(storeName(sid))} の費用一覧</h3>
     ${list}
@@ -1241,6 +1298,7 @@ function viewBudget() {
     <div class="card"><div class="lbl">イベント以外の費用</div><div class="val">${yen(to)}</div></div>
     <div class="card"><div class="lbl">費用の合計</div><div class="val">${yen(tu + to)}</div></div>
   </div>
+  ${cumulativeHtml(cumulative(fyOf(range[1]), qOf(range[1]), sid))}
   <div class="panel">
     <h3>イベントごとの予算と使用金額</h3>
     ${sid !== 'all' ? '<p class="muted small-text" style="margin-top:-4px">合同・全店共通イベントは、この店舗に割り振った予算と、按分した使用金額を表示しています。明細はイベント全体の金額です。</p>' : ''}
@@ -1280,7 +1338,7 @@ function viewBudget() {
 function expenseEditor(e) {
   const xs = e.expenses || [];
   const budgetPart = isSingle(e)
-    ? `予算 <input type="number" min="0" step="1000" id="ex-budget-${e.id}" data-act="event-budget" data-id="${e.id}" value="${num(e.budget) || ''}" placeholder="0" style="width:130px"> 円`
+    ? `予算 ${yen(num(e.budget))} <button class="small" data-act="budget-event" data-id="${e.id}">予算を変更</button>`
     : `予算 ${yen(budgetOf(e))} <button class="small" data-act="alloc-event" data-id="${e.id}">予算を割り振る</button>`;
   return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">${budgetPart}
     <div class="grow"></div><button class="small" data-act="edit-event" data-id="${e.id}">イベントを編集</button></div>
@@ -1291,7 +1349,7 @@ function expenseEditor(e) {
           ${costItems().map(c => `<option value="${c.id}" ${c.id === x.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
           ${x.costItemId && !costItems().some(c => c.id === x.costItemId) ? `<option value="${esc(x.costItemId)}" selected>(削除された項目)</option>` : ''}</select></td>
         <td><input id="ex-${e.id}-${x.id}-desc" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="desc" value="${esc(x.desc || '')}" placeholder="例:A4チラシ 5,000部"></td>
-        <td><input type="number" id="ex-${e.id}-${x.id}-amount" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="amount" value="${num(x.amount) || ''}" placeholder="0"></td>
+        <td>${moneyInput(`id="ex-${e.id}-${x.id}-amount" data-act="exp-field" data-id="${e.id}" data-x="${x.id}" data-f="amount"`, x.amount)}</td>
         <td class="nowrap"><button class="link small danger-text" data-act="exp-del" data-id="${e.id}" data-x="${x.id}">削除</button></td></tr>`).join('')}
     </table>
     <button class="small" style="margin-top:6px" data-act="exp-add" data-id="${e.id}">＋ 明細を追加</button>`;
@@ -1442,7 +1500,7 @@ MODALS.event = m => {
   const orphan = stores().filter(s => !blocks().some(b => b.id === s.blockId));
   let budget;
   if (!(e.stores || []).length) budget = '<div class="muted small-text">開催店舗を選ぶと予算を入力できます</div>';
-  else if (isSingle(e)) budget = `<input type="number" min="0" step="1000" id="ev-budget" value="${num(e.budget) || ''}" placeholder="0">`;
+  else if (isSingle(e)) budget = moneyInput('id="ev-budget"', e.budget);
   else budget = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>${yen(allocTotal(e))}</b>
       <span class="muted small-text">(媒体項目 ${(e.allocations || []).length}件)</span>
       <button type="button" data-act="ev-alloc">予算を割り振る</button></div>
@@ -1502,12 +1560,12 @@ MODALS.alloc = m => {
         <select data-act="al-item" data-i="${i}">${costItems().map(c => `<option value="${c.id}" ${c.id === a.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
         <div class="grow"></div><button class="link small danger-text" data-act="al-del" data-i="${i}">この項目を削除</button></div>
       <div class="alloc-auto"><span class="muted small-text">合計金額から振り分け</span>
-        <input type="number" min="0" step="1000" id="al-total-${i}" placeholder="例:300000">
+        ${moneyInput(`id="al-total-${i}"`, 0, '例:¥300,000')}
         <button class="small" data-act="al-even" data-i="${i}">均等に振り分け</button>
         <button class="small" data-act="al-scale" data-i="${i}">店舗規模に応じて振り分け</button></div>
       <table><tr><th>店舗</th><th class="num">規模</th><th class="num">金額(円)</th></tr>
         ${ss.map(sid => `<tr><td>${esc(storeName(sid))}</td><td class="num muted">${num((storeById(sid) || {}).scale) || 1}</td>
-          <td class="num"><input type="number" min="0" step="1000" class="al-amt" data-act="al-amt" data-i="${i}" data-sid="${sid}" value="${num((a.amounts || {})[sid]) || ''}" placeholder="0"></td></tr>`).join('')}
+          <td class="num">${moneyInput(`class="al-amt" data-act="al-amt" data-i="${i}" data-sid="${sid}"`, (a.amounts || {})[sid])}</td></tr>`).join('')}
         <tr class="total"><td>小計</td><td></td><td class="num" id="al-sub-${i}">${yen(sum(ss, sid => num((a.amounts || {})[sid])))}</td></tr>
       </table></div>`).join('')}
     <button data-act="al-add">＋ 媒体項目を追加</button>
@@ -1523,6 +1581,17 @@ function distribute(total, weights) {
   for (let i = 0; rest > 0 && out.length; i = (i + 1) % out.length, rest--) out[i]++;
   return out;
 }
+
+// ---------------------------------------------------------------- 単独イベントの予算の変更
+MODALS.evBudget = m => {
+  const e = getEvent(m.id);
+  return `<h2>予算を変更</h2>
+    <div class="rs-ev"><span class="typetag ${typeClass(e)}"></span><b>${esc(e.name)}</b><br>
+      <span class="muted small-text">${dateRange(e)} / ${esc(storeLabel(e))} / ${esc(e.type)}</span></div>
+    <label><span>予算</span>${moneyInput('id="eb-amount" autofocus style="max-width:220px"', e.budget)}</label>
+    <div class="err"></div>
+    <div class="foot"><div class="grow"></div><button data-act="modal-close">キャンセル</button><button class="primary" data-act="eb-save">保存</button></div>`;
+};
 
 // ---------------------------------------------------------------- 成果
 function openResultModal(id) {
@@ -1647,7 +1716,7 @@ MODALS.expense = m => {
     ${d.target === 'event' ? `<label><span>どのイベントの費用ですか? *</span><select id="cx-event" data-act="cx-event">${costEventOptions(d.storeId, d.eventId)}</select></label>
       ${ev && !isSingle(ev) ? '<div class="note">合同・全店共通のイベントです。<b>イベント全体でかかった金額</b>を入れてください。各店舗に割り振った予算の比率で自動的に按分されます(同じ費用を店舗ごとに重ねて入れないでください)。</div>' : ''}` : ''}
     ${d.target === 'other' ? `<label><span>何月分の費用ですか? *</span><input type="month" id="cx-month" value="${esc(d.month)}" style="max-width:220px"></label>` : ''}
-    <label><span>金額(円) *</span><input type="number" id="cx-amount" min="0" step="1" inputmode="numeric" value="${d.amount === '' ? '' : num(d.amount)}" placeholder="例:55000" style="max-width:220px"></label>
+    <label><span>金額(円) *</span>${moneyInput('id="cx-amount" style="max-width:220px"', d.amount, '例:¥55,000')}</label>
     <label><span>項目 *</span><select id="cx-item"><option value="" ${d.costItemId ? '' : 'selected'}>選んでください</option>
       ${costItems().map(c => `<option value="${c.id}" ${c.id === d.costItemId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
       ${d.costItemId && !costItems().some(c => c.id === d.costItemId) ? `<option value="${esc(d.costItemId)}" selected>(削除された項目)</option>` : ''}</select></label>
@@ -1722,6 +1791,8 @@ document.addEventListener('click', ev => {
 }));
 document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape' && modalStack.length) closeModal();
+  if (ev.key === 'Enter' && ev.target.id === 'eb-amount' && !ev.isComposing) ACT.click['eb-save']();
+  if (ev.key === 'Enter' && ev.target.id === 'plan-budget' && !ev.isComposing) ev.target.blur(); // Enter で確定(保存)
   if (ev.key === 'Enter' && ev.target.id === 'memo-text' && (ev.ctrlKey || ev.metaKey)) ACT.click['memo-add']();
 });
 const C = ACT.click, CH = ACT.change, IN = ACT.input;
@@ -1833,10 +1904,14 @@ C['memo-del'] = el => {
   plan.memos = (plan.memos || []).filter(x => x.id !== el.dataset.id);
   saveDoc(key, plan);
 };
-CH['event-budget'] = el => {
-  const e = clone(getEvent(el.dataset.id)); if (!e) return;
-  e.budget = num(el.value);
-  saveDoc('events/' + e.id, e);
+C['budget-event'] = el => { if (getEvent(el.dataset.id)) openModal({ kind: 'evBudget', id: el.dataset.id }); };
+C['eb-save'] = () => {
+  const m = topModal();
+  const e = clone(getEvent(m.id)); if (!e) return closeModal();
+  e.budget = num($('eb-amount').value);
+  e.updatedBy = session.user.name; e.updatedAt = new Date().toISOString();
+  closeModal();
+  saveDoc('events/' + e.id, e, '予算を変更しました');
 };
 C['alloc-event'] = el => {
   const e = getEvent(el.dataset.id); if (!e) return;
