@@ -292,9 +292,15 @@ td input.money{width:130px}
 .cum-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
 .cum-nums .lbl{display:block;font-size:12px;color:var(--muted)}
 .cum-nums b{font-size:18px}
-.cum-bar{height:8px;background:var(--line2);border-radius:4px;margin-top:10px;overflow:hidden}
-.cum-bar div{height:100%;background:var(--bar);border-radius:4px}
-.cum-bar div.over{background:var(--bar-over)}
+.cum-bar{height:10px;background:var(--line2);border-radius:5px;margin-top:10px;overflow:hidden;display:flex;position:relative}
+.cum-bar .cum-act{height:100%;background:var(--bar)}
+.cum-bar .cum-plan{height:100%;background:repeating-linear-gradient(45deg,#d3e1f5 0 6px,#e6eefa 6px 12px)}
+.cum-bar .cum-act.over{background:var(--bar-over)}
+.cum-bar .cum-plan.over{background:repeating-linear-gradient(45deg,#f5d3d0 0 6px,#faeae8 6px 12px)}
+.cum-line{position:absolute;top:0;bottom:0;width:2px;background:var(--danger)}
+.cum-legend{display:flex;gap:16px;margin-top:6px}
+.cum-dot-plan{background:repeating-linear-gradient(45deg,#d3e1f5 0 3px,#e6eefa 3px 6px);border:1px solid var(--soft-line)}
+.cum-sub{display:block;margin-top:2px}
 .qchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .qchip{font-size:12px;padding:2px 10px;border-radius:12px;border:1px solid var(--line)}
 .qchip.act{background:var(--ok-weak);border-color:#d3e8da;color:var(--ok)}
@@ -736,46 +742,53 @@ function resultCount(e) { return perStore(e) ? participants(e).filter(id => stor
 function allEntered(e) { return perStore(e) ? (participants(e).every(id => storeResult(e, id)) || !!(e.result && e.result.entered)) : hasResult(e); }
 
 /**
- * 年度の初め(Q1)から q 四半期目までの累計。
- * 消化金額は四半期・店舗ごとに「費用が1件でも入っていれば実績、まだ1件もなければ予算(見込み)」で数える。
+ * 年度の初め(Q1)から q 四半期目までの累計と着地見込み。
+ * 着地見込み = 終わった四半期は実績。今と先の四半期はイベントごとに「費用が入っていれば実績、まだなら配分した予算」。
+ * イベント以外の費用はいつでも実績。
  */
 function cumulative(fy, q, sid) {
   const ids = sid === 'all' ? stores().map(s => s.id) : Array.isArray(sid) ? sid : [sid];
-  let budget = 0, used = 0;
+  const td = today();
+  let budget = 0, actual = 0, planned = 0;
   const quarters = [];
   for (let i = 1; i <= q; i++) {
     const r = quarterRange(fy, i);
-    const t = { q: i, budget: 0, value: 0, act: 0, plan: 0 };
+    const t = { q: i, budget: 0, actual: 0, planned: 0, past: r[1] < td };
     ids.forEach(id => {
-      const b = num((getDoc(`plans/${fy}-q${i}-${id}`) || {}).budget);
-      const rows = costRows(r, id);
-      t.budget += b;
-      if (rows.length) { t.value += sum(rows, x => x.amt); t.act++; } else { t.value += b; t.plan++; }
+      t.budget += num((getDoc(`plans/${fy}-q${i}-${id}`) || {}).budget);
+      eventsIn(r, id).forEach(e => {
+        if (t.past || (e.expenses || []).length) t.actual += usedShare(e, id);
+        else t.planned += shareOf(e, id);
+      });
+      t.actual += sum(othersIn(r, id), c => num(c.amount));
     });
-    budget += t.budget; used += t.value;
+    budget += t.budget; actual += t.actual; planned += t.planned;
     quarters.push(t);
   }
-  return { fy, q, budget, used, quarters, range: [quarterRange(fy, 1)[0], quarterRange(fy, q)[1]] };
+  return { fy, q, budget, actual, planned, used: actual + planned, quarters, range: [quarterRange(fy, 1)[0], quarterRange(fy, q)[1]] };
 }
 function cumulativeHtml(c) {
-  const rate = c.budget > 0 ? Math.min(100, c.used / c.budget * 100) : 0;
-  const over = c.budget > 0 && c.used > c.budget;
+  const B = c.budget > 0 ? c.budget : 0;
+  const over = B > 0 && c.used > B;
+  const scale = Math.max(B, c.used) || 1; // 予算を超えたらバーは見込みの長さに合わせる
   const [, m1] = c.range[0].split('-').map(Number), [, m2] = c.range[1].split('-').map(Number);
-  const chip = t => {
-    const kind = !t.plan ? ['act', '実績'] : !t.act ? ['plan', '予算'] : ['mix', `実績${t.act}店・予算${t.plan}店`];
-    return `<span class="qchip ${kind[0]}"><b>Q${t.q}</b> ${kind[1]} ${yen(t.value)}</span>`;
-  };
+  const chip = t => t.past || !t.planned
+    ? `<span class="qchip act"><b>Q${t.q}</b> 実績 ${yen(t.actual)}</span>`
+    : `<span class="qchip mix"><b>Q${t.q}</b> 実績 ${yen(t.actual)} ＋ 配分予算 ${yen(t.planned)}</span>`;
   return `<div class="panel cum">
-    <div class="cum-head"><h3 style="margin:0">年度の累計</h3><span class="muted small-text">${kiLabel(c.fy)} ${m1}月〜${m2}月(Q1〜Q${c.q})</span></div>
+    <div class="cum-head"><h3 style="margin:0">年度の累計と着地見込み</h3><span class="muted small-text">${kiLabel(c.fy)} ${m1}月〜${m2}月(Q1〜Q${c.q})</span></div>
     <div class="cum-nums">
-      <div><span class="lbl">予算の累計</span><b>${c.budget ? yen(c.budget) : '未設定'}</b></div>
-      <div><span class="lbl">消化金額の累計</span><b class="${over ? 'red' : ''}">${yen(c.used)}</b></div>
-      <div><span class="lbl">残り</span><b class="${over ? 'red' : ''}">${c.budget ? yen(c.budget - c.used) : '—'}</b></div>
-      <div><span class="lbl">消化率</span><b class="${over ? 'red' : ''}">${pct(c.used, c.budget)}</b></div>
+      <div><span class="lbl">予算の累計</span><b>${B ? yen(B) : '未設定'}</b></div>
+      <div><span class="lbl">着地見込み(実績＋配分予算)</span><b class="${over ? 'red' : ''}">${yen(c.used)}</b>
+        <span class="muted small-text cum-sub">実績 ${yen(c.actual)} / 配分予算 ${yen(c.planned)}</span></div>
+      <div><span class="lbl">残り(見込み)</span><b class="${over ? 'red' : ''}">${B ? yen(B - c.used) : '—'}</b></div>
+      <div><span class="lbl">消化率(見込み)</span><b class="${over ? 'red' : ''}">${pct(c.used, B)}</b>
+        <span class="muted small-text cum-sub">実績だけなら ${pct(c.actual, B)}</span></div>
     </div>
-    ${c.budget ? `<div class="cum-bar"><div class="${over ? 'over' : ''}" style="width:${rate}%"></div></div>` : ''}
+    ${B ? `<div class="cum-bar"><div class="cum-act${over ? ' over' : ''}" style="width:${c.actual / scale * 100}%"></div><div class="cum-plan${over ? ' over' : ''}" style="width:${c.planned / scale * 100}%"></div>${over ? `<i class="cum-line" style="left:${B / scale * 100}%"></i>` : ''}</div>
+      <div class="cum-legend small-text muted"><span><i class="dot dot-alloc"></i>実績</span><span><i class="dot cum-dot-plan"></i>配分予算(まだ費用が入っていないイベント)</span></div>` : ''}
     <div class="qchips">${c.quarters.map(chip).join('')}</div>
-    <p class="muted small-text" style="margin:4px 0 0">消化金額は、費用が1件でも入った四半期は<b>実績</b>、まだ1件も入っていない四半期は<b>予算</b>で数えています。${c.budget ? '' : '四半期計画で各四半期の予算を入れると、累計の予算と消化率が出ます。'}</p>
+    <p class="muted small-text" style="margin:4px 0 0">着地見込みは、終わった四半期は<b>実績</b>、今と先の四半期はイベントごとに<b>費用が入っていれば実績、まだなら配分した予算</b>で数えています(イベント以外の費用は実績)。${B ? '' : '四半期計画で各四半期の予算を入れると、累計の予算と消化率が出ます。'}</p>
   </div>`;
 }
 
