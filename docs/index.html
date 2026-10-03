@@ -1310,9 +1310,10 @@ function viewPlan() {
 }
 
 // ---------------------------------------------------------------- 広告予算管理表(Excel)の出力
-// docs/budget_template.xlsx(元の管理表から実データを消した1タブのひな形)に、今開いている四半期・店舗の数字を入れる
-const EXCEL_LIB = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
-const EXCEL_FIRST = 10, EXCEL_LAST = 81; // ひな形の明細行
+// docs/budget_template.xlsx(元の管理表から実データを消した1タブのひな形)の中身のセルだけを書き換える。
+// 書式・結合・列幅はひな形のまま。数式には計算結果も入れておくので、保護ビューで開いても数字が見える。
+const ZIP_LIB = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+const XL_FIRST = 10, XL_LAST = 81; // ひな形の明細行
 function loadScript(src) {
   return new Promise((ok, ng) => {
     const el = document.createElement('script');
@@ -1320,69 +1321,149 @@ function loadScript(src) {
     document.head.appendChild(el);
   });
 }
+const xmlEsc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+/** シートXMLの1セルを書き換える(スタイル s はひな形のものを使う) */
+function xlSet(xml, ref, val, formula, shrink) {
+  const re = new RegExp(`<c r="${ref}"([^>]*?)(/>|>[\\s\\S]*?</c>)`);
+  const m = xml.match(re);
+  if (!m) return xml; // ひな形にないセルは触らない
+  let style = (m[1].match(/ s="\d+"/) || [''])[0];
+  if (shrink && style) style = ` s="${shrink(Number(style.match(/\d+/)[0]))}"`;
+  let body = '', type = '';
+  const f = formula ? `<f>${xmlEsc(formula)}</f>` : '';
+  if (val === null || val === undefined || val === '') { body = f; }
+  else if (typeof val === 'number') { body = f + `<v>${val}</v>`; }
+  else if (formula) { type = ' t="str"'; body = f + `<v>${xmlEsc(val)}</v>`; }
+  else { type = ' t="inlineStr"'; body = `<is><t>${xmlEsc(val)}</t></is>`; }
+  const cell = `<c r="${ref}"${style}${type}>${body}</c>`;
+  return xml.replace(re, () => cell); // 関数で渡す($1 などを特別扱いさせない)
+}
+/** ひな形のセルの書式に「縮小して全体を表示」を付けた書式を足す(狭い列で文字が切れないように) */
+function xlShrinkMaker(stylesXml) {
+  const doc = new DOMParser().parseFromString(stylesXml, 'application/xml');
+  const ns = doc.documentElement.namespaceURI;
+  const xfs = doc.getElementsByTagNameNS(ns, 'cellXfs')[0];
+  const made = {};
+  return {
+    shrink(idx) {
+      if (made[idx] != null) return made[idx];
+      const list = [...xfs.children].filter(e => e.localName === 'xf');
+      const src = list[idx]; if (!src) return idx;
+      const xf = src.cloneNode(true);
+      let al = [...xf.children].find(e => e.localName === 'alignment');
+      if (!al) { al = doc.createElementNS(ns, 'alignment'); xf.insertBefore(al, xf.firstChild); }
+      al.setAttribute('shrinkToFit', '1'); al.removeAttribute('wrapText');
+      xf.setAttribute('applyAlignment', '1');
+      xfs.appendChild(xf);
+      xfs.setAttribute('count', String(list.length + 1));
+      return (made[idx] = list.length);
+    },
+    xml() { return new XMLSerializer().serializeToString(doc); }
+  };
+}
 async function exportBudgetExcel() {
   const sid = state.uStore; if (!sid) return;
   const fy = state.uFy, q = state.uQ, range = uRange();
   const qn = `第${q}四半期`;
   setBusy(1);
   try {
-    if (!window.ExcelJS) await loadScript(EXCEL_LIB);
+    if (!window.JSZip) await loadScript(ZIP_LIB);
     const res = await fetch('budget_template.xlsx', { cache: 'no-cache' });
     if (!res.ok) throw new Error('ひな形のファイルが見つかりません');
-    const wb = new window.ExcelJS.Workbook();
-    await wb.xlsx.load(await res.arrayBuffer());
-    const ws = wb.worksheets[0];
-    ws.name = qn;
+    const zip = await window.JSZip.loadAsync(await res.arrayBuffer());
+    let xml = await zip.file('xl/worksheets/sheet1.xml').async('string');
+    const styles = xlShrinkMaker(await zip.file('xl/styles.xml').async('string'));
 
     const rows = costRows(range, sid);
-    const last = Math.max(EXCEL_LAST, EXCEL_FIRST + rows.length - 1);
+    if (XL_FIRST + rows.length - 1 >= 204) throw new Error('この四半期の明細が多すぎます(194件まで)');
+    // 明細がひな形の72行を超えたら、最後の行をまねて足す
+    if (rows.length > XL_LAST - XL_FIRST + 1) {
+      const lastRow = xml.match(new RegExp(`<row r="${XL_LAST}"[\\s\\S]*?</row>`))[0];
+      let extra = '';
+      for (let n = XL_LAST + 1; n <= XL_FIRST + rows.length - 1; n++) {
+        extra += lastRow.replace(new RegExp(`r="([A-Z]+)?${XL_LAST}"`, 'g'), (_, col) => `r="${col || ''}${n}"`)
+          .replace(/<v>\d+<\/v>/, `<v>${n - XL_FIRST + 1}</v>`)
+          .replace(/<f>K\d+-J\d+<\/f>/, `<f>K${n - 1}-J${n}</f>`);
+      }
+      xml = xml.replace(lastRow, () => lastRow + extra);
+      // コード欄(F:G)の結合も足す
+      let merges = '';
+      for (let n = XL_LAST + 1; n <= XL_FIRST + rows.length - 1; n++) merges += `<mergeCell ref="F${n}:G${n}"/>`;
+      xml = xml.replace(/<mergeCells count="(\d+)">/, (_, c) => `<mergeCells count="${Number(c) + rows.length - (XL_LAST - XL_FIRST + 1)}">${merges}`);
+    }
+    const last = Math.max(XL_LAST, XL_FIRST + rows.length - 1);
+    const set = (ref, val, formula, fit) => { xml = xlSet(xml, ref, val, formula, fit ? styles.shrink : null); };
+    // 単価:割れないとき(名簿数などが空)は #DIV/0! ではなく空欄にする
+    const unit = (ref, a, b, f) => set(ref, b ? a / b : null, `IFERROR(${f},"")`);
+
     // 見出し・上の集計欄
-    ws.getCell('A1').value = `${fy - 1990}期　広告予算管理表(${storeName(sid)})`;
-    ws.getCell('B3').value = `${qn}　支給予算額`;
-    ws.getCell('B4').value = `${qn}　広告宣伝費使用額`;
-    ws.getCell('B5').value = `${qn}　販売促進費使用額`;
-    ws.getCell('B6').value = `${qn}　残予算額`;
+    set('A1', `${fy - 1990}期　広告予算管理表`);
+    set('B3', `${qn}　支給予算額`);
+    set('B4', `${qn}　広告宣伝費使用額`);
+    set('B5', `${qn}　販売促進費使用額`);
+    set('B6', `${qn}　残予算額`);
     const budget = num((getDoc(`plans/${fy}-q${q}-${sid}`) || {}).budget);
-    ws.getCell('E3').value = budget || null;
+    set('E3', budget || null);
+    // 部門(広告宣伝費/販促費)はこのツールにないので 0
+    set('E4', 0, 'SUMIF($C$9:$C$194,"広告宣伝費",$J$9:$J$194)');
+    set('E5', 0, 'SUMIF($C$9:$C$194,"販促費",$J$9:$J$194)');
+    set('E6', budget, 'E3-E4-E5');
+
+    const amt = r => Math.round(r.amt);
     const mine = evList().filter(e => e.start && participants(e).includes(sid) && hasResult(e));
+    const tot = { h: 0, j: 0, l: 0, n: 0 };
     [0, 1, 2].forEach(i => {
       const d = fromDS(range[0]); d.setUTCMonth(d.getUTCMonth() + i);
       const ym = toDS(d).slice(0, 7), m = d.getUTCMonth() + 1, r = 3 + i;
-      ws.getCell('G' + r).value = `${m}月使用`;
-      ws.getCell('H' + r).value = { formula: `SUMIF($B$${EXCEL_FIRST}:$B$${last},"${m}月",$J$${EXCEL_FIRST}:$J$${last})` };
+      const h = sum(rows.filter(x => x.date.slice(0, 7) === ym), amt);
       const evs = mine.filter(e => e.start.startsWith(ym));
-      const leads = sum(evs.filter(e => category(e) === 'exhibit'), e => num(e.result.leads));
-      const visits = sum(evs.filter(e => category(e) === 'visit'), e => num(e.result.visits));
-      ws.getCell('J' + r).value = leads || null;  // 取得名簿数
-      ws.getCell('L' + r).value = visits || null; // 来場数
+      const j = sum(evs.filter(e => category(e) === 'exhibit'), e => num(e.result.leads)); // 取得名簿数
+      const l = sum(evs.filter(e => category(e) === 'visit'), e => num(e.result.visits));  // 来場数
+      tot.h += h; tot.j += j; tot.l += l;
+      set('G' + r, `${m}月使用`);
+      set('H' + r, h, `SUMIF($B$${XL_FIRST}:$B$${last},"${m}月",$J$${XL_FIRST}:$J$${last})`);
+      set('J' + r, j || null);
+      set('L' + r, l || null);
       // 契約数(N)はこのツールにないので空欄
+      unit('K' + r, h, j, `H${r}/J${r}`);
+      unit('M' + r, h, l, `H${r}/L${r}`);
+      unit('O' + r, h, 0, `H${r}/N${r}`);
     });
+    set('H6', tot.h, 'SUM(H3:H5)');
+    set('J6', tot.j, 'SUM(J3:J5)');
+    set('L6', tot.l, 'SUM(L3:L5)');
+    set('N6', 0, 'SUM(N3:N5)');
+    unit('K6', tot.h, tot.j, 'H6/J6');
+    unit('M6', tot.h, tot.l, 'H6/L6');
+    unit('O6', tot.h, 0, 'H6/N6');
 
-    // 明細(ひな形の72行を超えたら、最後の行の書式をまねて足す)
-    const tpl = ws.getRow(EXCEL_LAST);
-    rows.forEach((r, i) => {
-      const n = EXCEL_FIRST + i;
-      const row = ws.getRow(n);
-      if (n > EXCEL_LAST) {
-        tpl.eachCell({ includeEmpty: true }, (c, col) => { row.getCell(col).style = JSON.parse(JSON.stringify(c.style)); });
-        row.height = tpl.height;
-        row.getCell('A').value = n - EXCEL_FIRST + 1;
-        row.getCell('K').value = { formula: `K${n - 1}-J${n}` };
+    // 明細
+    let rest = budget;
+    set('K9', budget, 'E3');
+    for (let n = XL_FIRST; n <= last; n++) {
+      const r = rows[n - XL_FIRST];
+      if (r) {
+        set('B' + n, `${Number(r.date.slice(5, 7))}月`);
+        // C 部門・F コード・H 発注先・I 決済 は、このツールにないので空欄
+        set('D' + n, costName(r.x.costItemId), null, true);
+        set('E' + n, r.e ? [r.e.name, r.x.desc].filter(Boolean).join('　') : (r.x.desc || 'イベント以外の費用'), null, true);
+        set('J' + n, amt(r));
+        const note = r.e && !isSingle(r.e) ? `${isAll(r.e) ? '全店' : '合同'}按分` : !r.e ? 'イベント以外' : '';
+        set('L' + n, note || null, null, true);
+        rest -= amt(r);
       }
-      row.getCell('B').value = `${Number(r.date.slice(5, 7))}月`;
-      // C 部門(広告宣伝費/販促費)・F コード・H 発注先・I 決済 は、このツールにないので空欄
-      row.getCell('D').value = costName(r.x.costItemId);
-      row.getCell('E').value = r.e ? [r.e.name, r.x.desc].filter(Boolean).join('　') : (r.x.desc || 'イベント以外の費用');
-      row.getCell('J').value = Math.round(r.amt);
-      const note = [];
-      if (r.e && !isSingle(r.e)) note.push(`${isAll(r.e) ? '全店共通' : '合同'}(全体 ${yen(r.full)} を按分)`);
-      if (!r.e) note.push('イベント以外');
-      row.getCell('L').value = note.join(' ') || null;
-    });
-    wb.calcProperties.fullCalcOnLoad = true; // 開いたときに数式を計算し直す
+      set('K' + n, rest, `K${n - 1}-J${n}`);
+    }
+    zip.file('xl/worksheets/sheet1.xml', xml, { createFolders: false });
 
-    const buf = await wb.xlsx.writeBuffer();
-    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    // タブ名
+    let wbx = await zip.file('xl/workbook.xml').async('string');
+    wbx = wbx.replace(/(<sheet [^>]*name=")[^"]*"/, (_, head) => `${head}${xmlEsc(qn)}"`).replace(/'[^']*'!/g, () => `'${qn}'!`);
+    if (last > XL_LAST) wbx = wbx.replace(/\$A\$1:\$O\$\d+/, () => `$A$1:$O$${last}`);
+    zip.file('xl/workbook.xml', wbx, { createFolders: false });
+    zip.file('xl/styles.xml', styles.xml(), { createFolders: false });
+
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `${fy - 1990}期_広告予算管理表_${storeName(sid)}_${qn}.xlsx`;
