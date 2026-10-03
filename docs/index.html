@@ -1572,7 +1572,7 @@ function uHead(extra) {
     <label class="store-pick"><span>店舗</span>${storeSelect('u-store', 'u-store', sid, false, '店舗を選んでください')}</label>
     <div class="month-nav">
       <button data-act="u-q-step" data-v="-1" aria-label="前の四半期">‹</button>
-      <strong class="q-label">${state.uFy}年度 ${Q_LABEL[state.uQ]}</strong>
+      <strong class="q-label">${kiLabel(state.uFy)} ${Q_LABEL[state.uQ]}</strong>
       <button data-act="u-q-step" data-v="1" aria-label="次の四半期">›</button>
       <button class="small" data-act="u-q-today">今の四半期</button>
     </div>
@@ -2448,9 +2448,21 @@ C['stodo-del'] = el => {
 
 // 期間・店舗
 C['period-mode'] = el => go(() => { state.period.mode = el.dataset.v; });
-CH['period-ym'] = el => go(() => { if (el.value) state.period.ym = el.value; });
-CH['period-fy'] = el => go(() => { state.period.fy = Number(el.value); });
-CH['period-q'] = el => go(() => { state.period.q = Number(el.value); });
+CH['period-ym'] = el => go(() => { if (el.value) { state.period.ym = el.value; const d = el.value + '-01'; linkPeriod(fyOf(d), qOf(d)); } });
+CH['period-fy'] = el => go(() => { linkPeriod(Number(el.value), state.period.q); });
+CH['period-q'] = el => go(() => { linkPeriod(state.period.fy, Number(el.value)); });
+/**
+ * 期(年度)と四半期の選択を連動させる:費用実績・反響実績・四半期計画・分析シート。
+ * (分析シートと予算管理は、もともと同じ期間の選択を使っている)
+ */
+function linkPeriod(fy, q) {
+  state.uFy = fy; state.uQ = q;
+  state.plan.fy = fy; state.plan.q = q;
+  const P = state.period, r = quarterRange(fy, q);
+  P.fy = fy; P.q = q;
+  if (!(P.ym + '-01' >= r[0] && P.ym + '-01' <= r[1])) P.ym = r[0].slice(0, 7); // 月で見ているときは、その四半期の最初の月へ
+}
+function stepQuarter(fy, q, d) { const n = fy * 4 + q - 1 + d; return [Math.floor(n / 4), n % 4 + 1]; }
 CH['b-store'] = el => go(() => { state.bStore = el.value; });
 /**
  * 店舗の選択を連動させる:費用実績・反響実績・四半期計画・分析シート(カレンダーと予算管理は連動しない)。
@@ -2464,13 +2476,9 @@ CH['e-store'] = el => go(() => { linkStore(el.value); state.eStore = el.value; }
 
 // 四半期計画
 CH['plan-store'] = el => go(() => { linkStore(el.value); state.plan.storeId = el.value; });
-CH['plan-fy'] = el => go(() => { state.plan.fy = Number(el.value); });
-CH['plan-q'] = el => go(() => { state.plan.q = Number(el.value); });
-C['plan-q-step'] = el => go(() => { // Q4 の次は翌年度の Q1
-  const n = state.plan.fy * 4 + state.plan.q - 1 + Number(el.dataset.v);
-  state.plan.fy = Math.floor(n / 4); state.plan.q = n % 4 + 1;
-});
-C['plan-q-today'] = () => go(() => { state.plan.fy = fyOf(today()); state.plan.q = qOf(today()); });
+CH['plan-fy'] = el => go(() => { linkPeriod(Number(el.value), state.plan.q); });
+C['plan-q-step'] = el => go(() => linkPeriod(...stepQuarter(state.plan.fy, state.plan.q, Number(el.dataset.v)))); // Q4 の次は翌年度の Q1
+C['plan-q-today'] = () => go(() => linkPeriod(fyOf(today()), qOf(today())));
 function planKey() { const p = state.plan; return `plans/${p.fy}-q${p.q}-${p.storeId}`; }
 CH['plan-budget'] = el => {
   const key = planKey();
@@ -2558,11 +2566,8 @@ C['item-detail'] = el => openModal({ kind: 'itemDetail', wide: true, item: el.da
 
 // 実績入力
 CH['u-store'] = el => go(() => { linkStore(el.value); state.uStore = el.value; });
-C['u-q-step'] = el => go(() => {
-  const n = state.uFy * 4 + state.uQ - 1 + Number(el.dataset.v);
-  state.uFy = Math.floor(n / 4); state.uQ = n % 4 + 1;
-});
-C['u-q-today'] = () => go(() => { state.uFy = fyOf(today()); state.uQ = qOf(today()); });
+C['u-q-step'] = el => go(() => linkPeriod(...stepQuarter(state.uFy, state.uQ, Number(el.dataset.v))));
+C['u-q-today'] = () => go(() => linkPeriod(fyOf(today()), qOf(today())));
 C['cost-new'] = el => {
   const sid = el.dataset.store != null ? el.dataset.store : (state.tab === 'actual' ? state.uStore : '');
   openCostModal({ target: el.dataset.ev ? 'event' : el.dataset.target || '', eventId: el.dataset.ev || '', storeId: sid });
