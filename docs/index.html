@@ -254,6 +254,11 @@ td input.money{width:130px}
 .cum-bar{height:8px;background:var(--line2);border-radius:4px;margin-top:10px;overflow:hidden}
 .cum-bar div{height:100%;background:var(--accent);border-radius:4px}
 .cum-bar div.over{background:var(--danger)}
+.qchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.qchip{font-size:12px;padding:2px 10px;border-radius:12px;border:1px solid var(--line)}
+.qchip.act{background:var(--ok-weak);border-color:#b7dfc2;color:var(--ok)}
+.qchip.plan{background:var(--warn-weak);border-color:#f2d29b;color:var(--warn)}
+.qchip.mix{background:var(--accent-weak);border-color:#b7cdf7;color:var(--accent)}
 tr.month-row td{background:#eef3fb;font-weight:700;font-size:13px;padding:5px 9px}
 .note-cell{max-width:260px;white-space:pre-wrap}
 .q-label{min-width:170px}
@@ -603,28 +608,47 @@ function todoDone(e, key) {
 }
 function hasResult(e) { return !!(e.result && e.result.entered); }
 
-/** 年度の初め(Q1)から q 四半期目までの累計。予算は四半期計画の予算の合計、消化は費用(イベント+イベント以外)の合計 */
+/**
+ * 年度の初め(Q1)から q 四半期目までの累計。
+ * 消化金額は四半期・店舗ごとに「費用が1件でも入っていれば実績、まだ1件もなければ予算(見込み)」で数える。
+ */
 function cumulative(fy, q, sid) {
   const ids = sid === 'all' ? stores().map(s => s.id) : [sid];
-  let budget = 0;
-  for (let i = 1; i <= q; i++) ids.forEach(id => { budget += num((getDoc(`plans/${fy}-q${i}-${id}`) || {}).budget); });
-  const range = [quarterRange(fy, 1)[0], quarterRange(fy, q)[1]];
-  const used = sum(eventsIn(range, sid), e => sid === 'all' ? usedOf(e) : usedShare(e, sid)) + sum(othersIn(range, sid), c => num(c.amount));
-  return { fy, q, budget, used, range };
+  let budget = 0, used = 0;
+  const quarters = [];
+  for (let i = 1; i <= q; i++) {
+    const r = quarterRange(fy, i);
+    const t = { q: i, budget: 0, value: 0, act: 0, plan: 0 };
+    ids.forEach(id => {
+      const b = num((getDoc(`plans/${fy}-q${i}-${id}`) || {}).budget);
+      const rows = costRows(r, id);
+      t.budget += b;
+      if (rows.length) { t.value += sum(rows, x => x.amt); t.act++; } else { t.value += b; t.plan++; }
+    });
+    budget += t.budget; used += t.value;
+    quarters.push(t);
+  }
+  return { fy, q, budget, used, quarters, range: [quarterRange(fy, 1)[0], quarterRange(fy, q)[1]] };
 }
 function cumulativeHtml(c) {
   const rate = c.budget > 0 ? Math.min(100, c.used / c.budget * 100) : 0;
   const over = c.budget > 0 && c.used > c.budget;
   const [, m1] = c.range[0].split('-').map(Number), [, m2] = c.range[1].split('-').map(Number);
+  const chip = t => {
+    const kind = !t.plan ? ['act', '実績'] : !t.act ? ['plan', '予算'] : ['mix', `実績${t.act}店・予算${t.plan}店`];
+    return `<span class="qchip ${kind[0]}"><b>Q${t.q}</b> ${kind[1]} ${yen(t.value)}</span>`;
+  };
   return `<div class="panel cum">
     <div class="cum-head"><h3 style="margin:0">年度の累計</h3><span class="muted small-text">${kiLabel(c.fy)} ${m1}月〜${m2}月(Q1〜Q${c.q})</span></div>
     <div class="cum-nums">
       <div><span class="lbl">予算の累計</span><b>${c.budget ? yen(c.budget) : '未設定'}</b></div>
-      <div><span class="lbl">使った金額の累計(実績)</span><b class="${over ? 'red' : ''}">${yen(c.used)}</b></div>
+      <div><span class="lbl">消化金額の累計</span><b class="${over ? 'red' : ''}">${yen(c.used)}</b></div>
       <div><span class="lbl">残り</span><b class="${over ? 'red' : ''}">${c.budget ? yen(c.budget - c.used) : '—'}</b></div>
       <div><span class="lbl">消化率</span><b class="${over ? 'red' : ''}">${pct(c.used, c.budget)}</b></div>
     </div>
-    ${c.budget ? `<div class="cum-bar"><div class="${over ? 'over' : ''}" style="width:${rate}%"></div></div>` : '<p class="muted small-text" style="margin:6px 0 0">四半期計画で各四半期の予算を入れると、累計の予算と消化率が出ます。</p>'}
+    ${c.budget ? `<div class="cum-bar"><div class="${over ? 'over' : ''}" style="width:${rate}%"></div></div>` : ''}
+    <div class="qchips">${c.quarters.map(chip).join('')}</div>
+    <p class="muted small-text" style="margin:4px 0 0">消化金額は、費用が1件でも入った四半期は<b>実績</b>、まだ1件も入っていない四半期は<b>予算</b>で数えています。${c.budget ? '' : '四半期計画で各四半期の予算を入れると、累計の予算と消化率が出ます。'}</p>
   </div>`;
 }
 
