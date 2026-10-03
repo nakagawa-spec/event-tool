@@ -257,6 +257,7 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .modal .rs-in input{font-size:20px;font-weight:700;padding:6px 10px}
 .rs-in em{font-style:normal;color:var(--muted)}
 input.money{text-align:right}
+td.act-cell,th.act-cell{width:1%;white-space:nowrap;padding-left:2px;text-align:left}
 .bar.prep,.chip.prep{opacity:.35}
 .bar.prep:hover,.chip.prep:hover{opacity:.6}
 tr.prep td{color:var(--muted)}
@@ -1320,17 +1321,18 @@ function viewPlan() {
     <div class="view-head" style="margin-bottom:8px"><h3 style="margin:0">イベント計画</h3><div class="grow"></div>
       <button class="small" data-act="new-event" ${grp ? '' : `data-store="${sid}"`} data-start="${range[0] > today() ? range[0] : (today() <= range[1] ? today() : range[0])}">＋ ${grp ? 'イベントを登録' : 'この店舗のイベントを登録'}</button></div>
     ${evs.length ? `<div class="table-wrap"><table>
-      <tr><th>日付</th><th>イベント名</th><th>種類</th>${grp ? '<th>店舗</th>' : ''}<th>区分</th><th class="num">予算${grp ? '(合算分)' : ''}</th><th class="num">使用金額${grp ? '(合算分)' : ''}</th></tr>
+      <tr><th>日付</th><th>イベント名</th><th>種類</th>${grp ? '<th>店舗</th>' : ''}<th>区分</th><th class="num">予算${grp ? '(合算分)' : ''}</th><th class="act-cell"></th><th class="num">使用金額${grp ? '(合算分)' : ''}</th></tr>
       ${evs.map(e => `<tr>
         <td class="nowrap">${dateRange(e)}</td>
         <td><a href="#" data-act="edit-event" data-id="${e.id}"><span class="typetag ${typeClass(e)}"></span>${esc(e.name)}</a></td>
         <td class="nowrap">${esc(e.type)}</td>
         ${grp ? `<td class="nowrap">${ids.filter(id => participants(e).includes(id)).map(storeName).map(esc).join('・')}</td>` : ''}
         <td class="nowrap">${isSingle(e) ? '単独' : isAll(e) ? '全店共通' : '合同'}</td>
-        <td class="num">${isSingle(e)
-          ? `${yen(num(e.budget))} <button class="link small" data-act="budget-event" data-id="${e.id}">変更</button>`
-          : `${yen(shareX(e))} <button class="link small" data-act="alloc-event" data-id="${e.id}">割り振る</button>`}</td>
-        <td class="num">${yen(usedX(e))}${isSingle(e) ? '' : '<br><span class="muted small-text">按分</span>'}</td>
+        <td class="num">${yen(isSingle(e) ? num(e.budget) : shareX(e))}</td>
+        <td class="act-cell">${isSingle(e)
+          ? `<button class="link small" data-act="budget-event" data-id="${e.id}">変更</button>`
+          : `<button class="link small" data-act="alloc-event" data-id="${e.id}">割り振る</button>`}</td>
+        <td class="num">${isSingle(e) ? '' : '<span class="muted small-text">按分 </span>'}${yen(usedX(e))}</td>
       </tr>`).join('')}
     </table></div>` : '<div class="empty">この四半期のイベントはまだありません</div>'}
   </div>
