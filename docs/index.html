@@ -18,6 +18,19 @@
 }
 *{box-sizing:border-box}
 [hidden]{display:none !important}
+
+/* 読み込み中の表示 */
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes slide{0%{left:-35%}100%{left:100%}}
+@keyframes fade{0%,100%{opacity:.45}50%{opacity:1}}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--soft-line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px;flex:none}
+.spinner.lg{width:38px;height:38px;border-width:3px;margin:0}
+.spinner.on-btn{border-color:rgba(255,255,255,.4);border-top-color:#fff}
+.loading-box{display:flex;flex-direction:column;align-items:center;gap:14px;padding:44px 20px}
+.loading-box .muted{animation:fade 1.6s ease-in-out infinite}
+#topbar{position:fixed;top:0;left:0;right:0;height:3px;z-index:100;overflow:hidden;pointer-events:none;opacity:0;transition:opacity .2s}
+#topbar.on{opacity:1}
+#topbar::before{content:'';position:absolute;top:0;height:100%;width:35%;background:var(--bar);border-radius:2px;animation:slide 1.1s ease-in-out infinite}
 html,body{margin:0}
 body{background:var(--bg);color:var(--text);font:14px/1.55 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -288,6 +301,7 @@ tr.month-row td{background:#eef3fb;font-weight:700;font-size:13px;padding:5px 9p
 <div id="root"></div>
 <div id="modal-root"></div>
 <div id="toast-root"></div>
+<div id="topbar" aria-hidden="true"></div>
 <script>
 'use strict';
 // ====================================================================== 設定
@@ -477,9 +491,16 @@ function dayClass(s) { const w = dow(s); return holidayName(s) ? 'hol' : w === 0
 // ====================================================================== 通信
 const session = { token: lsGet('evt-token'), user: null };
 
-async function api(action, params) {
+let busyCount = 0;
+function setBusy(d) {
+  busyCount = Math.max(0, busyCount + d);
+  const el = $('topbar'); if (el) el.classList.toggle('on', busyCount > 0);
+}
+function loadingHtml(text) { return `<div class="loading-box"><span class="spinner lg"></span><div class="muted">${esc(text)}</div></div>`; }
+async function api(action, params, quiet) {
   const body = Object.assign({ action, token: session.token }, params || {});
   let res;
+  if (!quiet) setBusy(1);
   try {
     if (DEMO) res = await demoApi(body);
     else {
@@ -487,8 +508,10 @@ async function api(action, params) {
       res = await r.json();
     }
   } catch (e) {
+    if (!quiet) setBusy(-1);
     throw new Error('サーバーにつながりませんでした。ネットワークを確認してください');
   }
+  if (!quiet) setBusy(-1);
   if (!res || !res.ok) {
     const err = new Error((res && res.error) || 'エラーが起きました');
     err.code = res && res.code;
@@ -811,7 +834,7 @@ async function poll(manual) {
   if (!session.user || polling) return;
   polling = true;
   try {
-    const r = await api('changes', { since: version });
+    const r = await api('changes', { since: version }, !manual);
     let changed = false;
     Object.keys(r.docs || {}).forEach(k => {
       if (writingKeys.has(k)) return; // 自分が保存中のものは上書きしない
@@ -901,9 +924,9 @@ function render() {
 function renderSyncInfo() {
   const el = $('sync-info'); if (!el) return;
   el.classList.toggle('err', syncState === 'error');
-  if (syncState === 'saving' || pendingWrites) el.textContent = '保存中…';
+  if (syncState === 'saving' || pendingWrites) el.innerHTML = '<span class="spinner"></span>保存中…';
   else if (syncState === 'error') el.textContent = '保存できなかった変更があります';
-  else if (refreshing) el.textContent = '最新の内容を確認中…';
+  else if (refreshing) el.innerHTML = '<span class="spinner"></span>最新の内容を確認中…';
   else el.textContent = lastSync ? `最終更新 ${pad(lastSync.getHours())}:${pad(lastSync.getMinutes())}` + (pendingRender ? '(新しい変更あり)' : '') : '';
 }
 
@@ -1557,7 +1580,7 @@ function accStoreSelect(u) {
     ${sid && sid !== 'all' && !storeById(sid) ? '<option selected>(削除された店舗)</option>' : ''}</select>`;
 }
 function viewAccounts() {
-  if (!state.users) { loadUsers(); return '<div class="panel empty">読み込み中…</div>'; }
+  if (!state.users) { loadUsers(); return `<div class="panel">${loadingHtml('アカウントを読み込んでいます…')}</div>`; }
   const users = state.users;
   const me = session.user;
   const admins = users.filter(u => u.role === 'admin').length;
@@ -2473,6 +2496,8 @@ document.addEventListener('submit', async ev => {
     if (fd.password !== fd.password2) { err.textContent = '確認用のパスワードが一致しません'; return; }
   }
   btn.disabled = true;
+  const btnText = btn.textContent;
+  btn.innerHTML = `<span class="spinner on-btn"></span>${{ login: 'ログインしています…', register: '登録しています…', change: '変更しています…' }[form.dataset.form] || '処理中…'}`;
   try {
     if (form.dataset.form === 'change') {
       const r = await api('changePassword', { current: fd.current, password: fd.password });
@@ -2494,6 +2519,7 @@ document.addEventListener('submit', async ev => {
     if (e.code !== 'MUST_CHANGE') err.textContent = e.message;
   } finally {
     btn.disabled = false;
+    btn.textContent = btnText;
   }
 });
 function forceLogout(msg) {
@@ -2509,7 +2535,7 @@ function forceLogout(msg) {
 /** mode: 'cache' = 覚えていた内容ですぐ表示して裏で更新 / 'ready' = 読み込み済み / なし = ここで読み込む */
 async function startApp(mode) {
   if (!mode) {
-    $('root').innerHTML = '<div class="auth"><div class="panel empty">読み込み中…</div></div>';
+    $('root').innerHTML = `<div class="auth"><div class="panel">${loadingHtml('データを読み込んでいます…')}</div></div>`;
     try {
       await loadAll();
     } catch (e) {
@@ -2531,7 +2557,7 @@ async function startApp(mode) {
       session.user = c.user; docs = c.docs; version = c.version || 0;
       return startApp('cache');
     }
-    $('root').innerHTML = '<div class="auth"><div class="panel empty">読み込み中…</div></div>';
+    $('root').innerHTML = `<div class="auth"><div class="panel">${loadingHtml('データを読み込んでいます…')}</div></div>`;
     try {
       await loadAll(); // ログイン中の人の情報もいっしょに返ってくる
       if (!session.user) session.user = (await api('me')).user;
