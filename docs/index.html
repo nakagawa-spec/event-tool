@@ -9,8 +9,9 @@
 :root{
   color-scheme:light;
   --bg:#f4f5f7;--panel:#fff;--line:#e1e4e8;--line2:#eef0f2;--text:#1f2933;--muted:#69737f;
-  --accent:#1f6feb;--accent-weak:#e8f0fe;--danger:#c5221f;--danger-weak:#fce8e6;
-  --ok:#137333;--ok-weak:#e6f4ea;--warn:#a05a00;--warn-weak:#fef3e0;
+  --accent:#5a86c8;--accent-weak:#edf3fb;--danger:#c0645e;--danger-weak:#fbf0ef;
+  --bar:#a9c4ea;--bar-over:#efb3ae;--soft-line:#d6e2f3;
+  --ok:#4f8a62;--ok-weak:#eef6f0;--warn:#a8783a;--warn-weak:#fdf6ea;
   --sat:#e8f0fe;--sun:#fce8e6;--sat-text:#1a56c4;--sun-text:#c5221f;
   --visit:#3b7be8;--exhibit:#e07b12;--big:#8b3fd9;--allc:#16803c;
   --dw:34px;--namew:132px;
@@ -22,7 +23,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 11px}
 button:hover{background:#f6f8fa}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-button.primary:hover{background:#185fcc}
+button.primary:hover{background:#4c78b9}
 button.danger{background:var(--danger);border-color:var(--danger);color:#fff}
 button.link{border:none;background:none;color:var(--accent);padding:2px 4px}
 button.link.danger-text{color:var(--danger)}
@@ -219,11 +220,11 @@ button.big{font-size:15px;padding:8px 18px;font-weight:600}
 .target-seg button{text-align:left;padding:10px 12px;border-radius:8px;border:2px solid var(--line);background:#fff}
 .target-seg button b{display:block;font-size:14px}
 .target-seg button small{display:block;font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4}
-.target-seg button.on{border-color:var(--accent);background:var(--accent-weak)}
+.target-seg button.on{border-color:var(--bar);background:var(--accent-weak)}
 .target-seg button.on b{color:var(--accent)}
 .card .small-text{margin-top:2px}
 .num-badge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;margin-right:8px;vertical-align:1px}
-.todo-panel{border-color:#f2c779;background:#fffaf0}
+.todo-panel{border-color:#f0e0c2;background:#fffcf6}
 .todo-panel table{background:transparent}
 .rs-ev{background:#f7f8fa;border-radius:8px;padding:8px 12px;margin-bottom:12px}
 .rs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:6px}
@@ -239,7 +240,7 @@ input.money{text-align:right}
 .bh-value{font-size:30px;font-weight:700;padding:4px 0}
 .view-table th{width:90px;background:none;vertical-align:top}
 .store-note{font-size:12px;color:var(--muted)}
-.budget-hero{display:grid;grid-template-columns:minmax(260px,1fr) minmax(280px,1.3fr);gap:24px;align-items:center;border:2px solid var(--accent);padding:18px 20px}
+.budget-hero{display:grid;grid-template-columns:minmax(260px,1fr) minmax(280px,1.3fr);gap:24px;align-items:center;border:1px solid var(--soft-line);background:#f8fbff;padding:18px 20px}
 .bh-title{font-size:15px;font-weight:700;color:var(--accent);margin-bottom:6px}
 input.bh-input{width:100%;font-size:30px;font-weight:700;padding:8px 12px;margin-bottom:4px}
 .bh-side{border-left:1px solid var(--line);padding-left:24px}
@@ -248,10 +249,10 @@ input.bh-input{width:100%;font-size:30px;font-weight:700;padding:8px 12px;margin
 .bh-row.sub{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);color:var(--muted)}
 .bh-row.sub b{font-size:15px;color:var(--text)}
 .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
-.dot-alloc{background:var(--accent)}.dot-rest{background:var(--line)}
-.bh-bar{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin:6px 0 2px}
-.bh-bar div{height:100%;background:var(--accent)}
-.bh-bar div.over{background:var(--danger)}
+.dot-alloc{background:var(--bar)}.dot-rest{background:var(--line)}
+.bh-bar{height:10px;background:var(--line2);border-radius:5px;overflow:hidden;margin:6px 0 2px}
+.bh-bar div{height:100%;background:var(--bar)}
+.bh-bar div.over{background:var(--bar-over)}
 @media (max-width:900px){.budget-hero{grid-template-columns:1fr}.bh-side{border-left:none;padding-left:0}}
 td input.money{width:130px}
 .cum-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
@@ -259,13 +260,13 @@ td input.money{width:130px}
 .cum-nums .lbl{display:block;font-size:12px;color:var(--muted)}
 .cum-nums b{font-size:18px}
 .cum-bar{height:8px;background:var(--line2);border-radius:4px;margin-top:10px;overflow:hidden}
-.cum-bar div{height:100%;background:var(--accent);border-radius:4px}
-.cum-bar div.over{background:var(--danger)}
+.cum-bar div{height:100%;background:var(--bar);border-radius:4px}
+.cum-bar div.over{background:var(--bar-over)}
 .qchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .qchip{font-size:12px;padding:2px 10px;border-radius:12px;border:1px solid var(--line)}
-.qchip.act{background:var(--ok-weak);border-color:#b7dfc2;color:var(--ok)}
-.qchip.plan{background:var(--warn-weak);border-color:#f2d29b;color:var(--warn)}
-.qchip.mix{background:var(--accent-weak);border-color:#b7cdf7;color:var(--accent)}
+.qchip.act{background:var(--ok-weak);border-color:#d3e8da;color:var(--ok)}
+.qchip.plan{background:var(--warn-weak);border-color:#f1e0c4;color:var(--warn)}
+.qchip.mix{background:var(--accent-weak);border-color:var(--soft-line);color:var(--accent)}
 tr.month-row td{background:#eef3fb;font-weight:700;font-size:13px;padding:5px 9px}
 .note-cell{max-width:260px;white-space:pre-wrap}
 .q-label{min-width:170px}
