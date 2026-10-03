@@ -17,6 +17,7 @@
   --dw:34px;--namew:132px;
 }
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 html,body{margin:0}
 body{background:var(--bg);color:var(--text);font:14px/1.55 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -339,7 +340,7 @@ function applyStoreDefaults() {
   if (state.defaultsFor === key) return;
   state.defaultsFor = key;
   state.hidden = [];
-  if (sid && sid !== 'all') { state.uStore = sid; state.plan.storeId = sid; state.bStore = sid; state.eStore = sid; }
+  if (storeById(sid)) { state.uStore = sid; state.plan.storeId = sid; state.bStore = sid; state.eStore = sid; }
   else { state.bStore = 'all'; state.eStore = 'all'; }
   saveUi();
 }
@@ -621,7 +622,7 @@ function storesOrdered() {
   return out;
 }
 function storeById(id) { return stores().find(s => s.id === id); }
-function storeName(id) { if (id === 'all') return '全店共通'; const s = storeById(id); return s ? s.name : '(削除された店舗)'; }
+function storeName(id) { if (id === 'all') return '全店共通'; if (String(id).startsWith('co:')) return String(id).slice(3); const s = storeById(id); return s ? s.name : '(削除された店舗)'; }
 function costItems() { const d = getDoc('config/costItems'); return d && Array.isArray(d.items) ? d.items : DEFAULT_COST_ITEMS.items; }
 function costName(id) { const c = costItems().find(x => x.id === id); return c ? c.name : '(削除された項目)'; }
 
@@ -1547,6 +1548,7 @@ async function loadUsers() {
 }
 function accStoreSelect(u) {
   const sid = u.storeId || '';
+  if (sid.startsWith('co:')) return `<span class="small-text">${esc(sid.slice(3))}<br><span class="muted">(会社名)</span></span>`;
   return `<select id="acc-s-${u.id}" data-act="acc-setstore" data-id="${u.id}">
     ${sid ? '' : '<option value="" selected>(未設定)</option>'}
     ${blocks().map(b => `<optgroup label="${esc(b.name)}">${stores().filter(x => x.blockId === b.id).map(x => `<option value="${x.id}" ${x.id === sid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}
@@ -2391,7 +2393,7 @@ let authMode = 'login', hasUsers = true, needsCode = false, regStores = null;
 function regStoreSelect() {
   const cfg = regStores && Array.isArray(regStores.stores) ? regStores : DEFAULT_STORES;
   const bl = cfg.blocks || [];
-  return `<select name="storeId" required><option value="">選んでください</option>
+  return `<select name="storeId"><option value="">選んでください</option>
     ${bl.map(b => `<optgroup label="${esc(b.name)}">${cfg.stores.filter(x => x.blockId === b.id).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}
     ${cfg.stores.filter(x => !bl.some(b => b.id === x.blockId)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}
     <option value="all">本部(店舗に属さない)</option></select>`;
@@ -2418,10 +2420,11 @@ function authHtml() {
     <h1>新規登録</h1><p class="muted">店舗イベント管理を使うためのアカウントを作ります。</p>${demo}
     ${hasUsers ? '' : '<div class="note">まだ誰も登録していません。最初に登録した人が管理者になります。</div>'}
     <form data-form="register">
-      <label><span>店舗</span>${regStoreSelect()}</label>
-      <label><span>権限</span><select name="role" ${hasUsers ? '' : 'disabled'}>
+      <label><span>権限</span><select name="role" data-act="reg-role" ${hasUsers ? '' : 'disabled'}>
         <option value="employee">社員</option><option value="manager">店長</option><option value="vendor">事業者(制作会社など)</option>
         <option value="admin" ${hasUsers ? '' : 'selected'}>管理者</option></select></label>
+      <label id="reg-store"><span>店舗</span>${regStoreSelect()}</label>
+      <label id="reg-company" hidden><span>会社名</span><input name="company" autocomplete="organization" placeholder="例:株式会社〇〇デザイン"></label>
       ${hasUsers ? '<div class="note">店長:イベント・四半期計画・費用・反響実績の入力<br>社員:費用実績の入力(ほかは見るだけ)<br>事業者:カレンダーを見るだけ<br>管理者を選んだ場合は、今いる管理者が承認すると管理者になります(承認までは店長として使えます)。</div>' : ''}
       
       ${needsCode ? '<label><span>登録用コード(管理者から聞いてください)</span><input name="code" autocomplete="off" required></label>' : ''}
@@ -2443,12 +2446,25 @@ function authHtml() {
     <p class="muted small-text" style="text-align:center">パスワードを忘れたときは、管理者に仮パスワードの発行を頼んでください。</p></div></div>`;
 }
 C['auth-login'] = () => showAuth('login');
+// 事業者を選んだら、店舗の代わりに会社名を入れる
+CH['reg-role'] = el => {
+  const vendor = el.value === 'vendor';
+  $('reg-store').hidden = vendor;
+  $('reg-company').hidden = !vendor;
+};
 C['auth-register'] = () => showAuth('register');
 document.addEventListener('submit', async ev => {
   const form = ev.target.closest('[data-form]');
   if (!form) return;
   ev.preventDefault();
   const fd = Object.fromEntries(new FormData(form).entries());
+  if (form.dataset.form === 'register') {
+    const errEl = form.querySelector('.err');
+    if (fd.role === 'vendor') {
+      if (!String(fd.company || '').trim()) { errEl.textContent = '会社名を入力してください'; return; }
+      fd.storeId = 'co:' + String(fd.company).trim(); // 事業者は会社名で持つ(同じ会社の人とToDoを共有)
+    } else if (!fd.storeId) { errEl.textContent = '店舗を選んでください'; return; }
+  }
   const err = form.querySelector('.err');
   const btn = form.querySelector('button.primary');
   err.textContent = '';
