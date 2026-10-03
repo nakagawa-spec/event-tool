@@ -1323,7 +1323,12 @@ function viewPlan() {
   <div class="view-head">
     ${storeSelect('plan-store', 'plan-store', sid, false, null, true)}
     <select id="plan-fy" data-act="plan-fy">${fyOptions(p.fy)}</select>
-    <select id="plan-q" data-act="plan-q">${[1, 2, 3, 4].map(q => `<option value="${q}" ${q === p.q ? 'selected' : ''}>${Q_LABEL[q]}</option>`).join('')}</select>
+    <div class="month-nav">
+      <button data-act="plan-q-step" data-v="-1" aria-label="前の四半期">‹</button>
+      <strong class="q-label">${Q_LABEL[p.q]}</strong>
+      <button data-act="plan-q-step" data-v="1" aria-label="次の四半期">›</button>
+      <button class="small" data-act="plan-q-today">今の四半期</button>
+    </div>
     <span class="muted small-text">${ymd(range[0])}〜${ymd(range[1])}</span>
   </div>
   <div class="panel budget-hero">
@@ -1633,8 +1638,6 @@ function viewActual() {
     : '<div class="muted small-text">この四半期にこの店舗のイベントはありません</div>';
 
   return head + `
-  <div class="steps small-text"><b>入力のしかた</b>
-    <span>① 店舗と四半期を確認</span><span>② 「＋ 費用を入力」</span><span>③ 「イベントの費用」か「イベント以外の費用」を選ぶ</span><span>④ 項目・金額を入れて保存</span></div>
   <div class="cards">
     <div class="card"><div class="lbl">四半期の予算</div><div class="val">${budget ? yen(budget) : '<span class="muted" style="font-size:14px;font-weight:400">未設定(四半期計画で設定)</span>'}</div></div>
     <div class="card"><div class="lbl">使った金額</div><div class="val ${budget && used > budget ? 'neg' : ''}">${yen(used)}</div>
@@ -2455,6 +2458,11 @@ CH['e-store'] = el => go(() => { state.eStore = el.value; });
 CH['plan-store'] = el => go(() => { state.plan.storeId = el.value; });
 CH['plan-fy'] = el => go(() => { state.plan.fy = Number(el.value); });
 CH['plan-q'] = el => go(() => { state.plan.q = Number(el.value); });
+C['plan-q-step'] = el => go(() => { // Q4 の次は翌年度の Q1
+  const n = state.plan.fy * 4 + state.plan.q - 1 + Number(el.dataset.v);
+  state.plan.fy = Math.floor(n / 4); state.plan.q = n % 4 + 1;
+});
+C['plan-q-today'] = () => go(() => { state.plan.fy = fyOf(today()); state.plan.q = qOf(today()); });
 function planKey() { const p = state.plan; return `plans/${p.fy}-q${p.q}-${p.storeId}`; }
 CH['plan-budget'] = el => {
   const key = planKey();
