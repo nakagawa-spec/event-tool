@@ -15,7 +15,7 @@
   --ok:#4f8a62;--ok-weak:#eef6f0;--warn:#a8783a;--warn-weak:#fdf6ea;
   --sat:#e8f0fe;--sun:#fce8e6;--sat-text:#1a56c4;--sun-text:#c5221f;
   --visit:#3b7be8;--exhibit:#e07b12;--big:#8b3fd9;--allc:#16803c;
-  --dw:34px;--namew:132px;
+  --dw:34px;--namew:132px;--lane:24px;--barfs:12px;--chipfs:11px;--cellh:96px;
 }
 *{box-sizing:border-box}
 [hidden]{display:none !important}
@@ -110,7 +110,7 @@ main{min-width:0}
 .sg-row:last-child{border-bottom:none}
 .sg-name{position:sticky;left:0;z-index:3;flex:0 0 var(--namew);width:var(--namew);background:#fff;padding:4px 8px;border-right:1px solid var(--line);font-size:13px;display:flex;align-items:center}
 .sg-head .sg-name{font-weight:600;color:var(--muted)}
-.sg-days{display:grid;grid-template-columns:repeat(var(--n),var(--dw))}
+.sg-days{flex:1 1 0;min-width:calc(var(--n) * var(--dw));display:grid;grid-template-columns:repeat(var(--n),minmax(var(--dw),1fr))}
 .sg-day{text-align:center;font-size:12px;padding:3px 0;line-height:1.2;border-left:1px solid var(--line2)}
 .sg-day small{display:block;color:var(--muted);font-size:10px}
 .sg-day.sat{background:var(--sat);color:var(--sat-text)}
@@ -118,13 +118,13 @@ main{min-width:0}
 .sg-day.today{box-shadow:inset 0 -3px 0 var(--accent);font-weight:700}
 .sg-block .sg-name{background:#f7f8fa;font-weight:700;font-size:12px;color:var(--muted)}
 .sg-block{background:#f7f8fa}
-.sg-track{display:grid;grid-template-columns:repeat(var(--n),var(--dw));grid-template-rows:repeat(var(--lanes),24px);row-gap:3px;padding:4px 0;cursor:copy;position:relative}
+.sg-track{flex:1 1 0;min-width:calc(var(--n) * var(--dw));display:grid;grid-template-columns:repeat(var(--n),minmax(var(--dw),1fr));grid-template-rows:repeat(var(--lanes),var(--lane));row-gap:3px;padding:4px 0;cursor:copy;position:relative}
 .sg-bg{border-left:1px solid var(--line2)}
 .sg-bg.sat{background:#f5f8fe}
 .sg-bg.sun,.sg-bg.hol{background:#fdf4f3}
 .row-big .sg-name{color:var(--big);font-weight:700}
 .row-all .sg-name{color:var(--allc);font-weight:700}
-.bar{position:relative;z-index:1;margin:0 2px;border-radius:5px;padding:0 6px;font-size:12px;line-height:24px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.bar{position:relative;z-index:1;min-width:0;margin:0 2px;border-radius:5px;padding:0 6px;font-size:var(--barfs);line-height:var(--lane);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 .bar:hover,.chip:hover{filter:brightness(.92)}
 .t-visit{background:var(--visit)}
 .t-exhibit{background:var(--exhibit)}
@@ -135,7 +135,7 @@ main{min-width:0}
 .mc{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .mc-wd{padding:6px;text-align:center;font-size:12px;font-weight:600;border-bottom:1px solid var(--line);background:#f7f8fa}
 .mc-wd.sun{color:var(--sun-text)}.mc-wd.sat{color:var(--sat-text)}
-.mc-cell{min-height:96px;padding:4px;border-right:1px solid var(--line2);border-bottom:1px solid var(--line2);cursor:copy;min-width:0}
+.mc-cell{min-height:var(--cellh);padding:4px;border-right:1px solid var(--line2);border-bottom:1px solid var(--line2);cursor:copy;min-width:0}
 .mc-cell:nth-child(7n){border-right:none}
 .mc-cell.sat{background:#f8faff}
 .mc-cell.sun,.mc-cell.hol{background:#fff8f7}
@@ -145,7 +145,7 @@ main{min-width:0}
 .mc-cell.sun .mc-date,.mc-cell.hol .mc-date{color:var(--sun-text)}
 .mc-cell.today .mc-date b{background:var(--accent);color:#fff;border-radius:10px;padding:0 6px}
 .mc-hol{font-size:10px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.chip{font-size:11px;color:#fff;border-radius:4px;padding:1px 5px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.chip{font-size:var(--chipfs);color:#fff;border-radius:4px;padding:1px 5px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 
 /* 表 */
 .table-wrap{overflow-x:auto}
@@ -363,7 +363,70 @@ tr.month-row td{background:#eef3fb;font-weight:700;font-size:13px;padding:5px 9p
   :root{--namew:96px}
   .grid2{grid-template-columns:1fr}
   .target-seg{grid-template-columns:1fr}
-  .mc-cell{min-height:70px}
+  :root{--cellh:70px}
+}
+/* 大きい画面:カレンダーを画面に合わせて大きくする(小さい画面は従来どおり) */
+@media (min-width:1400px){
+  :root{--namew:150px;--lane:28px;--barfs:13px;--chipfs:12px;--cellh:max(110px,calc((100vh - 290px) / 6))}
+  .sg-day{font-size:13px;padding:5px 0}
+  .sg-name{font-size:14px}
+  .mc-date{font-size:13px}
+  .mc-wd{font-size:13px;padding:8px}
+}
+@media (min-width:1900px){
+  :root{--namew:170px;--lane:32px;--barfs:14px;--chipfs:13px;--cellh:max(130px,calc((100vh - 290px) / 6))}
+  .sg-day{font-size:14px}
+  .sg-name{font-size:15px}
+  .mc-date{font-size:14px}
+  .chip{padding:2px 6px}
+}
+/* スマホ */
+@media (max-width:600px){
+  body{font-size:15px}
+  input,select,textarea{font-size:16px} /* iPhoneで入力時に拡大されないように */
+  .top{padding:8px 10px;gap:6px 10px;position:static}
+  .brand{flex-direction:row;align-items:baseline;gap:6px}
+  .brand .b2{font-size:15px}
+  .tabs{order:3;width:100%;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin:0 -10px;padding:0 10px;width:calc(100% + 20px)}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{white-space:nowrap;flex:none;padding:7px 12px}
+  .top-right{margin-left:0;width:100%;gap:6px}
+  #sync-info{width:100%;order:9}
+  .layout,.layout.todo-closed{padding:8px;gap:10px}
+  .panel{padding:12px 10px;overflow-x:auto}
+  .view-head{gap:8px}
+  .view-head>.grow{display:none}
+  .view-head>button.primary{width:100%;padding:9px}
+  .month-nav button{min-width:38px;padding:6px 10px}
+  .filters{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;gap:6px 10px}
+  .filters>*{flex:none;white-space:nowrap}
+  .fgroup{flex-wrap:nowrap}
+  aside{order:1} /* スマホはカレンダーを先に、ToDoは下に */
+  .todo{max-height:none}
+  th,td{white-space:nowrap;padding:6px 7px} /* 表は文字を縦に潰さず横スクロール */
+  .note-cell{white-space:pre-wrap;min-width:180px}
+  .view-table td{white-space:normal}
+  .chip-st{display:none} /* 月カレンダーは狭いのでイベント名だけ */
+  .fchip{white-space:nowrap;padding:4px 10px}
+  :root{--namew:76px;--dw:32px;--cellh:62px;--chipfs:10px}
+  .sg-name{font-size:12px;padding:4px 6px}
+  .mc-cell{padding:2px}
+  .mc-hol{display:none}
+  .chip{padding:1px 3px;border-radius:3px}
+  .modal-bg{padding:8px}
+  .modal{padding:14px 12px;overflow-x:auto}
+  .foot button{flex:1 1 auto}
+  .cards{grid-template-columns:1fr 1fr}
+  .card .val{font-size:17px}
+  .rep-slides ol{columns:1}
+  .store-pick{flex-wrap:wrap}
+  .store-pick select{min-width:0;width:100%}
+  .memo{flex-direction:column;gap:2px}
+  .auth{margin:24px auto}
+  .bh-kpi b{font-size:20px}
+  input.bh-input{font-size:24px}
+  .budget-hero{padding:14px 12px}
+  #toast-root{left:8px;right:8px;transform:none}
 }
 @media print{.top,aside,.banner.demo{display:none}.layout{display:block}}
 </style>
@@ -1217,7 +1280,7 @@ function calMonth(y, m) {
   for (let d = start; d <= end; d = addDays(d, 1)) {
     const hol = holidayName(d);
     const chips = evs.filter(e => e.start <= d && evEnd(e) >= d).map(e =>
-      `<div class="chip ${typeClass(e)}${prepCls(e)}" data-act="edit-event" data-id="${e.id}" title="${esc(e.name)} / ${esc(storeLabel(e))}">${prepMark(e)}${esc(storeLabel(e))}|${esc(e.name)}</div>`).join('');
+      `<div class="chip ${typeClass(e)}${prepCls(e)}" data-act="edit-event" data-id="${e.id}" title="${esc(e.name)} / ${esc(storeLabel(e))}">${prepMark(e)}<span class="chip-st">${esc(storeLabel(e))}|</span>${esc(e.name)}</div>`).join('');
     cells += `<div class="mc-cell ${dayClass(d)} ${d < first || d > last ? 'out' : ''} ${d === td ? 'today' : ''}" data-act="day-new" data-date="${d}">
       <div class="mc-date"><b>${Number(d.slice(8))}</b>${hol ? `<span class="mc-hol">${esc(hol)}</span>` : ''}</div>${chips}</div>`;
   }
